@@ -1,7 +1,7 @@
 [project]
 name = "cli-market-backend"
 version = "1.0.0"
-description = "CLI Market backend — collector, connectors, indicators, enrichment"
+description = "CLI Market backend"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.110",
@@ -11,3 +11,14 @@ dependencies = [
     "aiosqlite>=0.20",
     "pydantic>=2.7",
 ]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["tests*", "ops*", "docs*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.html", "*.json", "*.toml"]
