@@ -1,71 +1,13 @@
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "cli-market"
-version = "1.7.0"
-description = "mcp-name: io.github.Treevu-ai/cli-market-world - CLI Market: commerce API for AI agents. 43 MCP tools, 34 indicators, 36 verified retailers in 11 countries. MIT."
-requires-python = ">=3.10"
-license = "MIT"
-authors = [{name = "CLI Market", email = "hello@cli-market.dev"}]
-keywords = ["vtex", "mcp", "ai-agents", "ecommerce", "cli", "retail", "commerce", "infrastructure"]
-readme = "README.md"
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3",
-    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
-]
+name = "cli-market-backend"
+version = "1.0.0"
+description = "CLI Market backend — collector, connectors, indicators, enrichment"
+requires-python = ">=3.11"
 dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
     "httpx>=0.27",
-    "rich>=13.0",
-    "fastapi>=0.115",
-    "uvicorn>=0.30",
-    "pydantic>=2.0",
-    "python-multipart>=0.0.9",
-    "psycopg2-binary>=2.9",
     "asyncpg>=0.29",
+    "aiosqlite>=0.20",
+    "pydantic>=2.7",
 ]
-
-[project.optional-dependencies]
-pg = ["asyncpg"]
-playwright = ["playwright>=1.45.0"]
-
-[project.scripts]
-market = "market_cli:main"
-market-server = "market_server:main"
-market-mcp = "market_mcp:main"
-
-[tool.setuptools]
-py-modules = ["market_cli", "market_server", "market_mcp", "market_stores", "market_core", "market_db", "market_billing", "store_credentials", "market_stats", "market_indicators", "market_enrich_sources", "market_enrich_subcategory", "market_spread"]
-
-[tool.ruff]
-line-length = 120
-target-version = "py310"
-extend-exclude = [
-    "landing/",
-    ".market/",
-    "dist/",
-    "build/",
-    "*.egg-info/",
-    "docs/financial-services/",
-]
-
-[tool.ruff.lint]
-# Focused on correctness, not style. Add rule families incrementally as the
-# codebase matures. Current scope:
-#   F   = pyflakes      (unused imports, undefined names, redefinitions)
-#   E9  = pycodestyle   (real syntax errors, IndentationError, etc.)
-#   W6  = pycodestyle   (deprecation warnings)
-#   B   = bugbear       (mutable default args, except-pass, etc.)
-select = ["F", "E9", "W6", "B"]
-ignore = [
-    "B008",   # FastAPI uses function calls in defaults (Header(None), Body(...))
-    "B904",   # raise from inside except — common pattern here, not always wrong
-]
-
-[tool.ruff.lint.per-file-ignores]
-# Tests intentionally import market_core after env setup — the E402 rule
-# would force module-level imports to be reordered, breaking the test isolation.
-"tests/*" = ["E402", "F401"]
