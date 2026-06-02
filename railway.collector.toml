@@ -1,0 +1,37 @@
+# Railway config for the COLLECTOR service (background worker).
+#
+# In Railway Dashboard → collector service → Settings → Config-as-code:
+#   Config file path: /railway.collector.toml
+#
+# Do NOT use the root railway.toml on this service — that file is for the API.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.collector"
+watchPatterns = [
+  "collect_prices.py",
+  "market_stores.py",
+  "market_core.py",
+  "market_db.py",
+  "market_billing.py",
+  "store_credentials.py",
+  "price_confidence.py",
+  "market_indicators.py",
+  "market_spread.py",
+  "market_enrich_sources.py",
+  "requirements.txt",
+  "market_connectors/**",
+  "Dockerfile.collector",
+  "railway.collector.toml",
+]
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+numReplicas = 1
+
+# Suggested Variables on this service:
+#   DATABASE_URL=${{Postgres.DATABASE_URL}}
+#   COLLECT_PARALLEL=6
+#   COLLECT_DELAY=0.75
+#   COLLECT_MAX_QUERIES_PER_LINE=12
+#   COLLECT_INTERVAL_HOURS=4

@@ -1,0 +1,14 @@
+# Railway config for the API service (FastAPI)
+#
+# COLLECTOR is a separate Railway service — use railway.collector.toml:
+#   Settings → Config-as-code → Config file path → /railway.collector.toml
+#
+# Add PostgreSQL from Railway dashboard → auto-injects DATABASE_URL
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+numReplicas = 1
