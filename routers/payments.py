@@ -656,7 +656,8 @@ async def lemon_webhook(request: Request):
         logger.warning("Lemon webhook signature skipped (dev mode)")
 
     try:
-        body = request.json() if hasattr(request, "_json") else __import__("json").loads(payload)
+        import json as _json
+        body = _json.loads(payload)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
