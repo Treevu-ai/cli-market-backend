@@ -16,6 +16,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 from market_core import STORES, LINES, COUNTRIES, get_db
 from server_deps import check_rate_limit
@@ -155,7 +156,11 @@ def health_db():
 
 @router.get("/health/collector")
 def health_collector():
-    """Collector health: last run, staleness, store coverage."""
+    """Collector health: last run, staleness, store coverage.
+
+    Returns HTTP 503 when status is 'dead' or 'stale' so uptime monitors
+    and Railway health checks can detect a silent collector failure.
+    """
     try:
         db = get_db()
         last = db.execute(
@@ -168,7 +173,10 @@ def health_collector():
         ).fetchone()["n"]
         db.close()
     except Exception:
-        return {"status": "unknown", "error": "Database not initialized"}
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unknown", "error": "Database not initialized"},
+        )
 
     if not last:
         return {"status": "unknown", "message": "No collector runs yet", "runs_total": 0}
@@ -183,7 +191,7 @@ def health_collector():
         status = "running"
         age_h = None
 
-    return {
+    payload = {
         "status": status,
         "last_run": last["started_at"],
         "last_finished": finished,
@@ -195,6 +203,10 @@ def health_collector():
         "stores_total": len(STORES),
         "runs_total": total_runs,
     }
+
+    if status in ("dead", "stale"):
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 @router.get("/v1/sources/health")

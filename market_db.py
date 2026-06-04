@@ -75,8 +75,12 @@ class _DB:
             sql = sql.replace("datetime('now', '-7 days')", "NOW() - INTERVAL '7 days'")
             sql = sql.replace("datetime('now', '-24 hours')", "NOW() - INTERVAL '24 hours'")
             sql = sql.replace("datetime('now')", "NOW()")
-            sql = sql.replace("INSERT OR REPLACE", "INSERT")
-            sql = sql.replace("INSERT OR IGNORE", "INSERT")
+            if "INSERT OR IGNORE" in sql:
+                sql = sql.replace("INSERT OR IGNORE", "INSERT")
+                if "ON CONFLICT" not in sql.upper():
+                    sql += " ON CONFLICT DO NOTHING"
+            else:
+                sql = sql.replace("INSERT OR REPLACE", "INSERT")
             cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute(sql, params)
             wrapper = _PgCursor(cur)

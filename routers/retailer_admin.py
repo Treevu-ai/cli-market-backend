@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, Field
 
 from retailer_onboarding import (
     approve_retailer_application,
@@ -16,6 +17,20 @@ from server_deps import require_admin
 from store_credentials import credential_summary, get_default_stores, invalidate_credential_cache
 
 router = APIRouter(prefix="/admin", tags=["admin-retailers"])
+
+
+class ApproveApplicationBody(BaseModel):
+    store_id: str = Field("", description="Override the guessed store_id slug")
+    magento_token: str = Field("", description="Magento/Shopify API token")
+    storefront_token: str = Field("", description="Storefront access token")
+    vtex_app_key: str = Field("", description="VTEX app key (vtexappkey-...)")
+    vtex_app_token: str = Field("", description="VTEX app token")
+    line: str = Field("supermercados", description="Business line (supermercados|farmacias|electro|hogar|moda|departamentales)")
+    review_notes: str = Field("", description="Internal notes recorded on the application")
+
+
+class RejectApplicationBody(BaseModel):
+    review_notes: str = Field("", description="Reason for rejection (stored on the application)")
 
 
 @router.get("/retailer-applications")
@@ -52,21 +67,20 @@ def get_retailer_application(
 @router.post("/retailer-applications/{app_id}/approve")
 def approve_application(
     app_id: str,
-    body: dict | None = None,
+    body: ApproveApplicationBody = ApproveApplicationBody(),
     authorization: str | None = Header(None),
 ):
     require_admin(authorization)
-    payload = body or {}
     try:
         result = approve_retailer_application(
             app_id,
-            store_id=(payload.get("store_id") or "").strip() or None,
-            magento_token=(payload.get("magento_token") or "").strip(),
-            storefront_token=(payload.get("storefront_token") or "").strip(),
-            vtex_app_key=(payload.get("vtex_app_key") or "").strip(),
-            vtex_app_token=(payload.get("vtex_app_token") or "").strip(),
-            line=(payload.get("line") or "supermercados").strip(),
-            review_notes=(payload.get("review_notes") or payload.get("notes") or "").strip(),
+            store_id=body.store_id.strip() or None,
+            magento_token=body.magento_token.strip(),
+            storefront_token=body.storefront_token.strip(),
+            vtex_app_key=body.vtex_app_key.strip(),
+            vtex_app_token=body.vtex_app_token.strip(),
+            line=body.line.strip(),
+            review_notes=body.review_notes.strip(),
         )
     except ValueError as e:
         code = str(e)
@@ -94,15 +108,14 @@ def approve_application(
 @router.post("/retailer-applications/{app_id}/reject")
 def reject_application(
     app_id: str,
-    body: dict | None = None,
+    body: RejectApplicationBody = RejectApplicationBody(),
     authorization: str | None = Header(None),
 ):
     require_admin(authorization)
-    payload = body or {}
     try:
         return reject_retailer_application(
             app_id,
-            review_notes=(payload.get("review_notes") or payload.get("notes") or "").strip(),
+            review_notes=body.review_notes.strip(),
         )
     except ValueError as e:
         code = str(e)
