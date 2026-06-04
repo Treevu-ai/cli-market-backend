@@ -12,14 +12,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgbm1 libpango-1.0-0 libcairo2 libasound2 && \
     rm -rf /var/lib/apt/lists/*
 
-# The collector now depends on its own repo (cli-market-backend) for all modules.
-# No private dependency needed — everything is in-tree.
+# The collector depends on the shared core library (cli-market-core), pinned by
+# commit in requirements.txt and installed from its private GitHub repo. The
+# data-moat modules and market_connectors/ now live there — only the collector
+# entrypoint stays in-tree.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    playwright install chromium
+RUN git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" && \
+    pip install --no-cache-dir -r requirements.txt && \
+    playwright install chromium && \
+    git config --global --unset url."https://${GITHUB_TOKEN}@github.com/".insteadOf
 
-COPY collect_prices.py market_stores.py market_core.py market_db.py market_billing.py store_credentials.py price_confidence.py market_indicators.py market_spread.py market_enrich_sources.py market_enrich_subcategory.py market_mcp.py market_units.py ./
-COPY market_connectors/ ./market_connectors/
+COPY collect_prices.py ./
 
 ENV PYTHONUNBUFFERED=1
 CMD ["python", "collect_prices.py", "--daemon"]

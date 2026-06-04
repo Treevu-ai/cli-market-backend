@@ -8,19 +8,11 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile.collector"
+# The data-moat modules now live in cli-market-core (pinned in requirements.txt),
+# so a core bump = a requirements.txt change = a collector redeploy.
 watchPatterns = [
   "collect_prices.py",
-  "market_stores.py",
-  "market_core.py",
-  "market_db.py",
-  "market_billing.py",
-  "store_credentials.py",
-  "price_confidence.py",
-  "market_indicators.py",
-  "market_spread.py",
-  "market_enrich_sources.py",
   "requirements.txt",
-  "market_connectors/**",
   "Dockerfile.collector",
   "railway.collector.toml",
 ]
