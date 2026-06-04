@@ -27,7 +27,10 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from market_core import (
@@ -117,6 +120,37 @@ app = FastAPI(
 )
 
 app.add_middleware(AccessLogMiddleware)
+
+
+# ── Exception handlers ────────────────────────────────────────────────────────
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "status_code": exc.status_code},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    first = exc.errors()[0] if exc.errors() else {}
+    msg = first.get("msg", "Invalid request")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": msg, "status_code": 422, "errors": exc.errors()},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "status_code": 500},
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv(

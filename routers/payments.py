@@ -518,12 +518,14 @@ async def billing_paypal(authorization: str | None = Header(None)):
                 "amount": "$49/mo",
                 "username": username,
             }
-        return {"error": result.get("error", "PayPal error"), "details": result}
+        raise HTTPException(status_code=502, detail=result.get("error", "PayPal subscription error"))
+    except HTTPException:
+        raise
     except ValueError as e:
-        return {"error": "PayPal no configurado", "detail": str(e)}
+        raise HTTPException(status_code=501, detail=f"PayPal no configurado: {e}")
     except Exception as e:
         logger.exception("billing_paypal failed")
-        return {"error": str(e)}
+        raise HTTPException(status_code=503, detail=f"Billing service unavailable: {e}")
 
 
 @router.post("/billing/checkout")
@@ -550,3 +552,129 @@ def billing_checkout(authorization: str | None = Header(None)):
         raise HTTPException(status_code=501, detail="pip install stripe")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/checkout/stripe-webhook")
+async def stripe_webhook(request: Request):
+    """Stripe webhook — verify signature, handle subscription events.
+
+    Required env vars: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET.
+    Events handled:
+      - checkout.session.completed   → mark order paid
+      - customer.subscription.updated → sync tier (active=pro, else free)
+      - customer.subscription.deleted → downgrade to free
+    """
+    stripe_key = os.getenv("STRIPE_SECRET_KEY", "")
+    webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    if not stripe_key:
+        raise HTTPException(status_code=501, detail="Stripe not configured")
+
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+
+    try:
+        import stripe
+
+        stripe.api_key = stripe_key
+        if webhook_secret:
+            event = stripe.Webhook.construct_event(payload, sig, webhook_secret)
+        else:
+            if is_production_deploy():
+                raise HTTPException(
+                    status_code=503,
+                    detail="STRIPE_WEBHOOK_SECRET required in production",
+                )
+            event = stripe.Event.construct_from(
+                {"id": "evt_local", "type": "unknown", "data": {"object": {}}},
+                stripe_key,
+            )
+            logger.warning("Stripe webhook signature skipped (dev mode)")
+    except ImportError:
+        raise HTTPException(status_code=501, detail="pip install stripe")
+    except stripe.error.SignatureVerificationError:
+        logger.warning("Stripe webhook signature verification failed")
+        raise HTTPException(status_code=401, detail="Invalid Stripe webhook signature")
+
+    actions: list[str] = []
+    event_type = event["type"]
+    obj = event["data"]["object"]
+
+    if event_type == "checkout.session.completed":
+        order_ref = obj.get("client_reference_id") or obj.get("metadata", {}).get("order_id", "")
+        if order_ref and order_ref.startswith("ORD-"):
+            db_update_order_status(order_ref, "paid")
+            actions.append(f"order_paid:{order_ref}")
+        username = obj.get("client_reference_id", "")
+        if username and not username.startswith("ORD-"):
+            db_set_subscription(username, "pro")
+            actions.append(f"pro_activated:{username}")
+
+    elif event_type == "customer.subscription.updated":
+        username = obj.get("metadata", {}).get("username", "")
+        status = obj.get("status", "")
+        if username:
+            tier = "pro" if status == "active" else "free"
+            db_set_subscription(username, tier)
+            actions.append(f"tier_{tier}:{username}")
+
+    elif event_type == "customer.subscription.deleted":
+        username = obj.get("metadata", {}).get("username", "")
+        if username:
+            db_set_subscription(username, "free")
+            actions.append(f"downgraded:{username}")
+
+    logger.info("Stripe webhook processed: %s → %s", event_type, actions)
+    return {"received": True, "event_type": event_type, "actions": actions}
+
+
+@router.post("/checkout/lemon-webhook")
+async def lemon_webhook(request: Request):
+    """Lemon Cash webhook — verify HMAC, mark orders paid.
+
+    Required env var: LEMON_WEBHOOK_SECRET.
+    Events handled:
+      - order.paid → mark order paid and/or activate Pro subscription
+    """
+    import hashlib
+    import hmac
+
+    webhook_secret = os.getenv("LEMON_WEBHOOK_SECRET", "")
+    payload = await request.body()
+
+    if webhook_secret:
+        sig = request.headers.get("x-lemon-signature", "")
+        expected = hmac.new(webhook_secret.encode(), payload, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            logger.warning("Lemon webhook signature verification failed")
+            raise HTTPException(status_code=401, detail="Invalid Lemon webhook signature")
+    elif is_production_deploy():
+        raise HTTPException(
+            status_code=503,
+            detail="LEMON_WEBHOOK_SECRET required in production",
+        )
+    else:
+        logger.warning("Lemon webhook signature skipped (dev mode)")
+
+    try:
+        body = request.json() if hasattr(request, "_json") else __import__("json").loads(payload)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    event_type = body.get("type", "") or body.get("event", "")
+    data = body.get("data") or body.get("checkout") or {}
+    actions: list[str] = []
+
+    if event_type in ("order.paid", "checkout.paid"):
+        external_ref = data.get("external_reference", "") or data.get("reference", "")
+        m = _ORDER_REF_RE.search(external_ref)
+        if m:
+            order_id = m.group(1).upper()
+            db_update_order_status(order_id, "paid")
+            actions.append(f"order_paid:{order_id}")
+        username = data.get("custom_data", {}).get("username", "")
+        if username:
+            db_set_subscription(username, "pro")
+            actions.append(f"pro_activated:{username}")
+
+    logger.info("Lemon webhook processed: %s → %s", event_type, actions)
+    return {"received": True, "event_type": event_type, "actions": actions}
