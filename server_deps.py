@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import hashlib
 import os
-import time
 
 from fastapi import HTTPException
 
 from market_core import (
     check_rate_limit_sqlite,
+    db_check_auth_brute_force,
     db_get_users,
+    db_record_auth_failure,
     db_validate_api_key,
 )
 
@@ -70,25 +71,20 @@ def verify_password(password: str, stored: str) -> bool:
 
 # ── Brute-force protection ────────────────────────────────────────────────────
 
-_auth_attempts: dict[str, list[float]] = {}
 AUTH_MAX_ATTEMPTS = 5
 AUTH_WINDOW = 300  # 5 minutes
 
+# Kept for backwards-compat imports from market_server (tests reference it)
+_auth_attempts: dict[str, list[float]] = {}
+
 
 def check_auth_brute_force(username: str) -> None:
-    now = time.time()
-    window_start = now - AUTH_WINDOW
-    _auth_attempts.setdefault(username, [])
-    _auth_attempts[username] = [t for t in _auth_attempts[username] if t > window_start]
-    if len(_auth_attempts[username]) >= AUTH_MAX_ATTEMPTS:
-        raise HTTPException(
-            status_code=429, detail="Demasiados intentos. Esperá 5 minutos."
-        )
+    db_check_auth_brute_force(username, max_attempts=AUTH_MAX_ATTEMPTS, window_secs=AUTH_WINDOW)
 
 
 def record_auth_failure(username: str) -> None:
-    """Record a failed auth attempt — called from /auth/login after wrong password."""
-    _auth_attempts.setdefault(username, []).append(time.time())
+    """Record a failed auth attempt — persisted in DB so it survives restarts."""
+    db_record_auth_failure(username)
 
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────

@@ -884,6 +884,44 @@ def check_rate_limit_sqlite(ip: str, window_secs: int = 60, max_req: int = 10,
     db.close()
 
 
+def db_check_auth_brute_force(username: str, max_attempts: int = 5, window_secs: int = 300) -> None:
+    """Raise 429 if username exceeded max_attempts in the last window_secs.
+
+    Uses the rate_limits table so state survives restarts and scales across
+    multiple processes sharing the same database.
+    """
+    import time as _time
+    from fastapi import HTTPException
+    now = _time.time()
+    key = f"auth:{username}"
+    cutoff = now - window_secs
+    db = get_db()
+    db.execute("DELETE FROM rate_limits WHERE key=? AND window_start < ?", (key, cutoff))
+    count = db.execute(
+        "SELECT SUM(counter) as total FROM rate_limits WHERE key=? AND window_start >= ?",
+        (key, cutoff),
+    ).fetchone()["total"] or 0
+    db.commit()
+    db.close()
+    if count >= max_attempts:
+        raise HTTPException(status_code=429, detail="Demasiados intentos. Esperá 5 minutos.")
+
+
+def db_record_auth_failure(username: str) -> None:
+    """Persist a failed auth attempt. Call after a wrong password check."""
+    import time as _time
+    db = get_db()
+    key = f"auth:{username}"
+    now = _time.time()
+    db.execute(
+        "INSERT INTO rate_limits (key, window_start, counter) VALUES (?,?,1) "
+        "ON CONFLICT(key, window_start) DO UPDATE SET counter = rate_limits.counter + 1",
+        (key, now),
+    )
+    db.commit()
+    db.close()
+
+
 # ── Explicit init helper ──────────────────────────────────────────────────────
 # NOTE: init_db() is NO LONGER called at import time. Each entrypoint
 # (market_server lifespan, collect_prices.main, tests) MUST call
