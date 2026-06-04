@@ -4,21 +4,95 @@ Endpoints:
   GET  /admin/debug-fetch     Test fetch_store + product_from_json for one store/query
   POST /admin/collect         Trigger a price collection run synchronously
   POST /v1/admin/scan-stores  Probe known retailer domains for liveness
+  GET  /admin/contacts        List captured lead emails (plan, profile, signup date)
 
 Protected with MARKET_API_TOKEN (Bearer). Set on Railway before exposing publicly.
 """
 
 from __future__ import annotations
 
+import io
+import csv
 import time
 
 import httpx
-from fastapi import APIRouter, Body, Header
+from fastapi import APIRouter, Body, Header, Query
+from fastapi.responses import StreamingResponse
 
-from market_core import STORES, fetch_store, product_from_json
+from market_core import STORES, fetch_store, product_from_json, get_db
 from server_deps import require_admin
 
 router = APIRouter(prefix="", tags=["admin"])
+
+
+@router.get("/admin/contacts")
+def admin_contacts(
+    plan: str | None = Query(default=None, description="Filter by plan: free, pro, enterprise, newsletter"),
+    limit: int = Query(default=200, ge=1, le=2000),
+    offset: int = Query(default=0, ge=0),
+    fmt: str = Query(default="json", alias="format", description="json or csv"),
+    authorization: str | None = Header(None),
+):
+    """List lead emails captured via the landing contact forms.
+
+    ?plan=free   — only Free tier signups
+    ?plan=pro    — Pro requests
+    ?format=csv  — download as CSV
+    """
+    require_admin(authorization)
+    db = get_db()
+    if plan:
+        rows = db.execute(
+            """
+            SELECT username AS email, first_name AS name, last_message, created_at
+            FROM contacts
+            WHERE last_message LIKE ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (f"[{plan}%", limit, offset),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            """
+            SELECT username AS email, first_name AS name, last_message, created_at
+            FROM contacts
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        ).fetchall()
+    db.close()
+
+    contacts = []
+    for r in rows:
+        msg = r["last_message"] or ""
+        # Extract profile tag: "[free/dev] ..." → "dev"
+        profile = ""
+        if msg.startswith("[") and "/" in msg.split("]")[0]:
+            profile = msg.split("/", 1)[1].split("]")[0]
+        contacts.append({
+            "email": r["email"],
+            "name": r["name"] if r["name"] not in ("free", "pro", "enterprise", "newsletter", "") else "",
+            "profile": profile,
+            "message": msg,
+            "signed_up": r["created_at"],
+        })
+
+    if fmt == "csv":
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=["email", "name", "profile", "signed_up", "message"])
+        writer.writeheader()
+        writer.writerows(contacts)
+        buf.seek(0)
+        filename = f"contacts-{plan or 'all'}.csv"
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+
+    return {"total": len(contacts), "plan": plan or "all", "contacts": contacts}
 
 
 @router.get("/admin/debug-fetch")
