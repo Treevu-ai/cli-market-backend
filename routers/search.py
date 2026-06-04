@@ -329,8 +329,9 @@ def barcode_lookup(code: str):
 
 
 @router.get("/products/enrich")
-def enrich_products(query: str, limit: int = 5):
+def enrich_products(query: str, limit: int = 5, authorization: str | None = Header(None)):
     """OpenFoodFacts text search."""
+    require_api_key(authorization)
     r = httpx.get(
         f"https://world.openfoodfacts.org/cgi/search.pl?search_terms={query}&json=1&page_size={limit}",
         timeout=10,
@@ -352,8 +353,9 @@ def enrich_products(query: str, limit: int = 5):
 
 
 @router.get("/categories/{store}")
-async def categories(store: str):
+async def categories(store: str, authorization: str | None = Header(None)):
     """VTEX category tree (depth 10) for a store."""
+    require_api_key(authorization)
     base = STORES.get(store, {}).get("base", "")
     if not base:
         raise HTTPException(status_code=404, detail="Tienda no encontrada")

@@ -145,10 +145,10 @@ def require_checkout_access(username: str) -> None:
 # ── Per-user rate limiting ────────────────────────────────────────────────────
 
 TIER_LIMITS: dict[str, tuple[int, int]] = {
-    "free":       (1_000,    60),
-    "starter":    (5_000,   100),
-    "pro":       (10_000,   200),
-    "enterprise":(100_000, 1_000),
+    "free":       (1_000,   60),
+    "starter":    (5_000,  120),
+    "pro":       (10_000,  300),
+    "enterprise": (-1,      -1),   # -1 = unlimited
 }
 
 
@@ -175,6 +175,8 @@ def check_user_rate_limit(username: str) -> None:
     if username == "admin":
         return
     daily_max, min_max = _get_user_tier_limits(username)
+    if daily_max <= 0 or min_max <= 0:
+        return  # enterprise / unlimited tier
     check_rate_limit_sqlite(
         f"u:{username}",
         window_secs=RATE_LIMIT_WINDOW,

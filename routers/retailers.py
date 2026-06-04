@@ -12,7 +12,12 @@ import uuid
 
 from fastapi import APIRouter, HTTPException
 
-from market_core import get_db
+from market_core import (
+    db_create_api_key,
+    db_create_subscription_request,
+    db_set_subscription,
+    get_db,
+)
 
 
 router = APIRouter(tags=["retailers"])
@@ -173,6 +178,37 @@ def contact_request(body: dict):
             "payment_link": pro.get("payment_link"),
             "email_sent": pro.get("email_sent", False),
             "message": pro.get("message", "Pro request received."),
+        }
+
+    if plan == "starter":
+        trial_username = f"user-{uuid.uuid4().hex[:12]}"
+        from server_deps import hash_password
+        from market_core import db_save_user
+        db_save_user(trial_username, hash_password(uuid.uuid4().hex), None)
+        db_set_subscription(trial_username, "starter")
+        key_data = db_create_api_key(trial_username, "read", "starter-trial")
+        db_create_subscription_request(trial_username, email, "starter-trial")
+        try:
+            from market_connectors.email_outbound import send_credentials_email
+            send_credentials_email(
+                to_email=email,
+                username=trial_username,
+                api_key=key_data["key"],
+                plan="starter",
+                lang=lang,
+            )
+        except Exception:
+            pass
+        return {
+            "ok": True,
+            "plan": "starter",
+            "username": trial_username,
+            "key_prefix": key_data["prefix"],
+            "message": (
+                "Prueba activada — revisa tu correo para tu API key."
+                if lang == "es" else
+                "Trial activated — check your email for your API key."
+            ),
         }
 
     return {"ok": True, "message": "Thanks — we'll reply within 24 hours."}

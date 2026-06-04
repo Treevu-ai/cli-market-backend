@@ -886,6 +886,14 @@ async def main():
                     f"  ✓ {r['prices_collected']:,} prices | {r['stores_succeeded']}/{r['stores_attempted']} stores | "
                     f"{time.monotonic()-t0:.1f}s | {r['errors']} errors"
                 )
+                # Evaluate price alerts after every collection cycle
+                try:
+                    from market_alerts import evaluate_alerts
+                    fired = evaluate_alerts()
+                    if fired:
+                        print(f"  🔔 Alerts: {fired} fired")
+                except Exception as _ae:
+                    print(f"  ⚠ Alert evaluation skipped: {_ae}")
                 if USE_PG and pool:
                     cat_count = await run_full_catalog_pg(pool, stores)
                     if cat_count:
