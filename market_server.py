@@ -23,10 +23,12 @@ about to add one — instead, find or create the right router.
 from __future__ import annotations
 
 import os
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from market_core import (
     COUNTRIES,
@@ -58,6 +60,28 @@ from server_deps import (  # noqa: F401
 )
 
 logger = log.getChild("server")
+_access_log = log.getChild("access")
+
+_SKIP_ACCESS_LOG = {"/health", "/"}
+
+
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """Log every HTTP request: method, path, status, duration."""
+
+    async def dispatch(self, request: Request, call_next):
+        start = time.monotonic()
+        response = await call_next(request)
+        duration_ms = (time.monotonic() - start) * 1000
+        if request.url.path not in _SKIP_ACCESS_LOG:
+            _access_log.info(
+                "%s %s → %d  %.0fms  %s",
+                request.method,
+                request.url.path,
+                response.status_code,
+                duration_ms,
+                request.client.host if request.client else "-",
+            )
+        return response
 
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
@@ -92,6 +116,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(AccessLogMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv(
