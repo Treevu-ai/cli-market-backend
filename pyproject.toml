@@ -24,7 +24,7 @@ exclude = ["tests*", "ops*", "docs*"]
 "*" = ["*.html", "*.json", "*.toml"]
 
 [tool.pytest.ini_options]
-collect_ignore = ["tests/test_sync_linkedin_metrics.py"]
+addopts = "--ignore=tests/test_sync_linkedin_metrics.py"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
 ]
