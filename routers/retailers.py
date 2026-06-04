@@ -7,42 +7,13 @@ Endpoints:
 
 from __future__ import annotations
 
-import os
 import re
 import uuid
 
-import httpx
 from fastapi import APIRouter, HTTPException
 
 from market_core import get_db
 
-_BEEHIIV_API_KEY = os.getenv("BEEHIIV_API_KEY", "")
-_BEEHIIV_PUB_ID = os.getenv("BEEHIIV_PUBLICATION_ID", "")
-
-
-def _subscribe_beehiiv(email: str, utm_campaign: str = "free-signup") -> bool:
-    if not _BEEHIIV_API_KEY or not _BEEHIIV_PUB_ID:
-        return False
-    try:
-        r = httpx.post(
-            f"https://api.beehiiv.com/v2/publications/{_BEEHIIV_PUB_ID}/subscriptions",
-            headers={
-                "Authorization": f"Bearer {_BEEHIIV_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "email": email,
-                "utm_source": "landing",
-                "utm_medium": "free-signup",
-                "utm_campaign": utm_campaign,
-                "reactivate_existing": True,
-                "send_welcome_email": True,
-            },
-            timeout=8.0,
-        )
-        return r.status_code in (200, 201)
-    except Exception:
-        return False
 
 router = APIRouter(tags=["retailers"])
 
@@ -152,8 +123,6 @@ def contact_request(body: dict):
     profile = (body.get("profile") or "").strip().lower()[:20]
     name = (body.get("name") or "").strip()[:120]
     company = (body.get("company") or "").strip()[:200]
-    newsletter_optin = bool(body.get("newsletter_optin", False))
-
     if not email or not _EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="valid email is required")
     if not use_case or len(use_case) < 5:
@@ -175,9 +144,6 @@ def contact_request(body: dict):
     )
     db.commit()
     db.close()
-
-    if newsletter_optin:
-        _subscribe_beehiiv(email, utm_campaign=profile or plan)
 
     if plan == "pro":
         from routers.payments import process_pro_subscription_request
