@@ -521,7 +521,7 @@ def request_pro_subscription(body: dict, authorization: str | None = Header(None
 
 @router.post("/billing/paypal")
 async def billing_paypal(authorization: str | None = Header(None)):
-    """PayPal Subscription for Pro plan ($49/mo)."""
+    """PayPal Subscription for Pro plan ($79/mo)."""
     username = require_api_key(authorization)
     try:
         from market_connectors.paypal_payments import create_subscription
@@ -533,7 +533,7 @@ async def billing_paypal(authorization: str | None = Header(None)):
                 "subscription_id": result["subscription_id"],
                 "approve_url": result["approve_url"],
                 "plan": "Pro",
-                "amount": "$49/mo",
+                "amount": "$79/mo",
                 "username": username,
             }
         return {"error": result.get("error", "PayPal error"), "details": result}

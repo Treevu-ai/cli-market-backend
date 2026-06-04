@@ -41,7 +41,7 @@ def _require_alerts_tier(username: str) -> None:
         raise HTTPException(
             status_code=403,
             detail=(
-                "Price alerts require CLI Market Pro ($49/mo). "
+                "Price alerts require CLI Market Pro ($79/mo). "
                 "Upgrade with: market upgrade"
             ),
         )
