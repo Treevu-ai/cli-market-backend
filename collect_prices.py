@@ -625,6 +625,7 @@ async def collect_one_pg(pool, store, queries):
     collected = 0
     query_ok = 0
     query_fail = 0
+    query_empty = 0
     pending: list[dict] = []
     insert_errors: list[str] = []
     try:
@@ -639,8 +640,10 @@ async def collect_one_pg(pool, store, queries):
                 try:
                     raw = await fetch_store_multi(client, store, q)
                     if not raw:
-                        query_fail += 1
-                        cb.lose(store)
+                        # Empty result = store doesn't carry this category, not a
+                        # failure. Counting it against the circuit breaker poisons
+                        # the lifetime success_pct of stores with partial catalogs.
+                        query_empty += 1
                         continue
                     cb.win(store)
                     query_ok += 1
@@ -662,8 +665,8 @@ async def collect_one_pg(pool, store, queries):
                         try:
                             raw = await fetch_store_multi(client, store, q)
                             if not raw:
-                                query_fail += 1
-                                cb.lose(store)
+                                # Empty after a 429 retry: not a failure either.
+                                query_empty += 1
                                 continue
                             cb.win(store)
                             query_ok += 1
@@ -702,11 +705,13 @@ async def collect_one_pg(pool, store, queries):
         logger.warning("collect_one_pg %s failed: %s", store, str(exc)[:160])
         cb.lose(store)
     if query_fail and query_ok == 0 and collected == 0:
-        logger.warning("store %s: %d query failures, 0 successes", store, query_fail)
+        logger.warning("store %s: %d query failures, %d empty, 0 successes", store, query_fail, query_empty)
+    elif query_ok == 0 and query_empty > 0 and query_fail == 0:
+        logger.info("store %s: catalog returned no matches for %d queries (no errors)", store, query_empty)
     elif query_ok > 0 and collected == 0:
         logger.warning("store %s: %d queries OK but 0 prices saved", store, query_ok)
     elif collected > 0:
-        logger.info("store %s: %d products from %d queries", store, collected, query_ok)
+        logger.info("store %s: %d products from %d queries (%d empty)", store, collected, query_ok, query_empty)
     if insert_errors:
         logger.warning("store %s: %d insert errors (first: %s)", store, len(insert_errors), insert_errors[0])
     return collected
