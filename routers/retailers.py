@@ -7,12 +7,42 @@ Endpoints:
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 
+import httpx
 from fastapi import APIRouter, HTTPException
 
 from market_core import get_db
+
+_BEEHIIV_API_KEY = os.getenv("BEEHIIV_API_KEY", "")
+_BEEHIIV_PUB_ID = os.getenv("BEEHIIV_PUBLICATION_ID", "")
+
+
+def _subscribe_beehiiv(email: str, utm_campaign: str = "free-signup") -> bool:
+    if not _BEEHIIV_API_KEY or not _BEEHIIV_PUB_ID:
+        return False
+    try:
+        r = httpx.post(
+            f"https://api.beehiiv.com/v2/publications/{_BEEHIIV_PUB_ID}/subscriptions",
+            headers={
+                "Authorization": f"Bearer {_BEEHIIV_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "email": email,
+                "utm_source": "landing",
+                "utm_medium": "free-signup",
+                "utm_campaign": utm_campaign,
+                "reactivate_existing": True,
+                "send_welcome_email": True,
+            },
+            timeout=8.0,
+        )
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
 
 router = APIRouter(tags=["retailers"])
 
@@ -119,23 +149,35 @@ def contact_request(body: dict):
     use_case = (body.get("use_case") or body.get("message") or "").strip()
     plan = (body.get("plan") or "free").strip().lower()
     lang = (body.get("lang") or "en").strip().lower()[:2]
+    profile = (body.get("profile") or "").strip().lower()[:20]
+    name = (body.get("name") or "").strip()[:120]
+    company = (body.get("company") or "").strip()[:200]
+    newsletter_optin = bool(body.get("newsletter_optin", False))
 
     if not email or not _EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="valid email is required")
-    if not use_case or len(use_case) < 10:
-        raise HTTPException(status_code=400, detail="use_case is required (min 10 chars)")
+    if not use_case or len(use_case) < 5:
+        raise HTTPException(status_code=400, detail="use_case is required (min 5 chars)")
 
     db = get_db()
     chat_id = f"web-{uuid.uuid4().hex[:10]}"
+    tag = f"[{plan}/{profile}]" if profile else f"[{plan}]"
+    display_name = name or plan
+    full_message = f"{tag} {use_case}"
+    if company:
+        full_message = f"{tag} company={company} {use_case}"
     db.execute(
         """
         INSERT INTO contacts (chat_id, first_name, username, last_message, created_at, updated_at)
         VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
         """,
-        (chat_id, plan, email, f"[{plan}] {use_case[:2000]}"),
+        (chat_id, display_name, email, full_message[:2000]),
     )
     db.commit()
     db.close()
+
+    if newsletter_optin:
+        _subscribe_beehiiv(email, utm_campaign=profile or plan)
 
     if plan == "pro":
         from routers.payments import process_pro_subscription_request
