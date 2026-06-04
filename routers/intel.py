@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 
 from market_core import STORES, get_db
 from market_enrich_subcategory import ENRICH_SUBCATEGORIES, get_subcategory_enrichment
@@ -32,6 +32,8 @@ from market_indicators import (
     refresh_indicators,
 )
 
+from server_deps import require_api_key
+
 router = APIRouter(tags=["intel"])
 
 
@@ -45,7 +47,9 @@ def inflation_tracker(
     line: str | None = None,
     days: int = 30,
     limit: int = 100,
+    authorization: str | None = Header(None),
 ):
+    require_api_key(authorization)
     """Compute per-product price deltas within the last `days` window.
 
     Compares earliest vs latest snapshot per product name in the window.
@@ -126,7 +130,9 @@ def intel_alerts(
     store: str | None = None,
     threshold_pct: float = 5.0,
     limit: int = 10,
+    authorization: str | None = Header(None),
 ):
+    require_api_key(authorization)
     """Price alerts from price_history when delta exceeds threshold_pct."""
     db = get_db()
     since = _since_iso(30)
@@ -185,8 +191,9 @@ def intel_alerts(
 
 
 @router.get("/v1/intel/indicators")
-def list_indicators():
+def list_indicators(authorization: str | None = Header(None)):
     """Catalog of moat indicators (internal, external public APIs, composite)."""
+    require_api_key(authorization)
     return {
         "count": len(get_indicator_catalog()),
         "indicators": get_indicator_catalog(),
@@ -199,7 +206,9 @@ def get_indicator(
     country: str | None = None,
     line: str | None = None,
     limit: int = 30,
+    authorization: str | None = Header(None),
 ):
+    require_api_key(authorization)
     """Latest time-series points for one indicator."""
     db = get_db()
     values = get_latest_values(db, indicator_key=indicator_key, country=country, line=line, limit=limit)
@@ -215,13 +224,15 @@ def get_indicator(
 
 
 @router.get("/v1/intel/scores")
-def intel_scores(country: str | None = None, line: str | None = None):
+def intel_scores(country: str | None = None, line: str | None = None, authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Composite scores blending moat signals and public macro data."""
     return compute_composite_scores(country=country, line=line)
 
 
 @router.get("/v1/intel/basket-stress")
-def basket_stress(country: str | None = None):
+def basket_stress(country: str | None = None, authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Minimum canasta básica stress index for a country."""
     db = get_db()
     value = compute_basket_stress(db, country)
@@ -239,14 +250,16 @@ def basket_stress(country: str | None = None):
 
 
 @router.post("/v1/intel/refresh")
-def intel_refresh(country: str | None = None, line: str | None = None):
+def intel_refresh(country: str | None = None, line: str | None = None, authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Refresh internal computed indicators and fetch public API macro signals."""
     result = refresh_indicators(country=country, line=line)
     return {"status": "ok", **result}
 
 
 @router.get("/v1/intel/enrichment")
-def intel_enrichment(country: str | None = None, limit: int = 20):
+def intel_enrichment(country: str | None = None, limit: int = 20, authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Latest enrichment indicators (OFF, Wikimedia, weather, food CPI) for a country."""
     db = get_db()
     keys = ENRICHMENT_INDICATOR_KEYS
@@ -271,7 +284,8 @@ def intel_enrichment(country: str | None = None, limit: int = 20):
 
 
 @router.get("/v1/intel/enrichment/subcategories")
-def intel_enrichment_subcategories(country: str = "PE"):
+def intel_enrichment_subcategories(country: str = "PE", authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Per-subcategory signals: price momentum, wiki demand, min shelf price."""
     db = get_db()
     items = get_subcategory_enrichment(db, country)
@@ -285,6 +299,7 @@ def intel_enrichment_subcategories(country: str = "PE"):
 
 
 @router.post("/v1/intel/enrichment/refresh")
-def intel_enrichment_refresh(country: str | None = None):
+def intel_enrichment_refresh(country: str | None = None, authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Refresh only enrichment indicators (OFF sample, Wiki, weather, food CPI)."""
     return refresh_enrichment_only(country=country)

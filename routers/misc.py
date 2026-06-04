@@ -15,7 +15,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 
 from market_core import COUNTRIES, FX_PEN_PER_UNIT, LINES, STORES, convert_currency, get_db
 from market_stats import MCP_TOOLS
-from server_deps import require_user
+from server_deps import require_api_key
 
 router = APIRouter(tags=["misc"])
 
@@ -25,7 +25,7 @@ router = APIRouter(tags=["misc"])
 @router.post("/favorites")
 def favorites(body: dict, authorization: str | None = Header(None)):
     """Manage favorite products. action ∈ {'list', 'add', 'remove'}."""
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     action = body.get("action", "list")
     db = get_db()
     if action == "add":

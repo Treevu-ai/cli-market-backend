@@ -27,7 +27,7 @@ from market_core import (
     db_get_orders,
     get_db,
 )
-from server_deps import require_user
+from server_deps import require_api_key
 from market_core import user_can_checkout
 
 router = APIRouter(tags=["orders"])
@@ -43,7 +43,7 @@ def checkout(body: CheckoutRequest, authorization: str | None = Header(None)):
 
     Production: use POST /checkout/yape, /checkout/paypal, etc.
     """
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     if not user_can_checkout(username):
         raise HTTPException(
             status_code=403,
@@ -68,14 +68,14 @@ def checkout(body: CheckoutRequest, authorization: str | None = Header(None)):
 
 @router.get("/orders")
 def order_history(authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     user_orders = db_get_orders(username)
     return {"username": username, "orders": user_orders, "total_orders": len(user_orders)}
 
 
 @router.get("/orders/{order_id}")
 def order_status(order_id: str, authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     db = get_db()
     order = db.execute(
         "SELECT * FROM app_orders WHERE order_id=? AND username=?", (order_id, username)
@@ -97,7 +97,7 @@ def order_receipt(order_id: str, authorization: str | None = Header(None)):
     IMPORTANTE: Emisión MANUAL. No se envía automáticamente a SUNAT.
     Para facturación electrónica oficial, configure SUNAT_PSE_API_KEY + PSE.
     """
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     db = get_db()
     order = db.execute(
         "SELECT * FROM app_orders WHERE order_id=? AND username=?", (order_id, username)
@@ -145,7 +145,7 @@ def order_receipt(order_id: str, authorization: str | None = Header(None)):
 
 @router.post("/orders/reorder")
 def reorder_last(authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     user_orders = db_get_orders(username)
     if not user_orders:
         raise HTTPException(status_code=404, detail="Sin órdenes previas")

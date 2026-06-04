@@ -140,3 +140,55 @@ def require_checkout_access(username: str) -> None:
             "Run: market upgrade"
         ),
     )
+
+
+# ── Per-user rate limiting ────────────────────────────────────────────────────
+
+TIER_LIMITS: dict[str, tuple[int, int]] = {
+    "free":       (1_000,    60),
+    "starter":    (5_000,   100),
+    "pro":       (10_000,   200),
+    "enterprise":(100_000, 1_000),
+}
+
+
+def _get_user_tier_limits(username: str) -> tuple[int, int]:
+    """Return (daily_max, per_min_max) from the user's subscription row."""
+    from market_core import get_db
+    db = get_db()
+    row = db.execute(
+        "SELECT tier, req_limit_day, req_limit_min FROM subscriptions WHERE username=?",
+        (username,),
+    ).fetchone()
+    db.close()
+    if row:
+        tier = (row["tier"] or "free").lower()
+        defaults = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+        daily = int(row["req_limit_day"] or defaults[0])
+        per_min = int(row["req_limit_min"] or defaults[1])
+        return daily, per_min
+    return RATE_LIMIT_DAY, RATE_LIMIT_MIN
+
+
+def check_user_rate_limit(username: str) -> None:
+    """Apply per-user rate limiting based on subscription tier. Admin bypasses."""
+    if username == "admin":
+        return
+    daily_max, min_max = _get_user_tier_limits(username)
+    check_rate_limit_sqlite(
+        f"u:{username}",
+        window_secs=RATE_LIMIT_WINDOW,
+        max_req=min_max,
+        daily_max=daily_max,
+    )
+
+
+def require_api_key(authorization: str | None) -> str:
+    """Validate auth token and apply per-user rate limits.
+
+    Drop-in replacement for require_user on all data/search endpoints.
+    Limits come from the user's subscription tier (free=1k/day, pro=10k/day).
+    """
+    username = require_user(authorization)
+    check_user_rate_limit(username)
+    return username

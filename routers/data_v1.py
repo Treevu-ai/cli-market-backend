@@ -10,7 +10,7 @@ Endpoints:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Header, Query
 
 from data_v1_service import (
     build_coverage_matrix,
@@ -20,6 +20,7 @@ from data_v1_service import (
 )
 from market_basket import build_canasta_snapshot
 from market_core import get_db
+from server_deps import require_api_key
 
 router = APIRouter(tags=["intelligence"])
 
@@ -29,7 +30,9 @@ def quality_flagged(
     reason: str | None = Query(None, description="discount | outlier | spread"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None),
 ):
+    require_api_key(authorization)
     db = get_db()
     try:
         return query_flagged(db, reason=reason, limit=limit, offset=offset)
@@ -46,7 +49,9 @@ def prices_v1(
     store: str | None = None,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None),
 ):
+    require_api_key(authorization)
     db = get_db()
     try:
         return query_prices(
@@ -70,7 +75,9 @@ def dispersion_v1(
     currency: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None),
 ):
+    require_api_key(authorization)
     db = get_db()
     try:
         return query_dispersion(
@@ -89,7 +96,9 @@ def dispersion_v1(
 def basket_snapshot_v1(
     stores: str | None = Query(None, description="Comma-separated store keys"),
     min_items: int = Query(3, ge=1, le=10),
+    authorization: str | None = Header(None),
 ):
+    require_api_key(authorization)
     store_filter = None
     if stores:
         store_filter = {s.strip() for s in stores.split(",") if s.strip()}
@@ -101,7 +110,8 @@ def basket_snapshot_v1(
 
 
 @router.get("/v1/coverage/matrix")
-def coverage_matrix_v1(line: str | None = None):
+def coverage_matrix_v1(line: str | None = None, authorization: str | None = Header(None)):
+    require_api_key(authorization)
     db = get_db()
     try:
         return build_coverage_matrix(db, line=line)
