@@ -10,10 +10,11 @@ Endpoints:
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 
 from market_core import get_db
 from market_indicators import get_indicator_catalog, get_latest_values
+from server_deps import require_api_key
 
 router = APIRouter(tags=["analytics"])
 
@@ -24,7 +25,9 @@ def price_history(
     store: str | None = None,
     line: str | None = None,
     limit: int = 50,
+    authorization: str | None = Header(None),
 ):
+    require_api_key(authorization)
     db = get_db()
     q = "SELECT * FROM price_snapshots WHERE 1=1"
     params: list = []
@@ -45,7 +48,8 @@ def price_history(
 
 
 @router.get("/analytics/stats")
-def analytics_stats():
+def analytics_stats(authorization: str | None = Header(None)):
+    require_api_key(authorization)
     db = get_db()
     total_snapshots = db.execute("SELECT COUNT(*) as n FROM price_snapshots").fetchone()["n"]
     total_queries = db.execute("SELECT COUNT(*) as n FROM search_queries").fetchone()["n"]
@@ -67,7 +71,8 @@ def analytics_stats():
 
 
 @router.get("/analytics/trending")
-def analytics_trending(country: str | None = None, line: str | None = None, limit: int = 10):
+def analytics_trending(country: str | None = None, line: str | None = None, limit: int = 10, authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Recent products from the data moat. NOTE: this is a placeholder —
     'trending' currently just means 'most recent', not 'biggest price move'.
     See follow-up tickets for a real trend calculation."""
@@ -91,7 +96,8 @@ def analytics_trending(country: str | None = None, line: str | None = None, limi
 
 
 @router.get("/analytics/brands")
-def analytics_brands(line: str | None = None, country: str | None = None, limit: int = 20):
+def analytics_brands(line: str | None = None, country: str | None = None, limit: int = 20, authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Top brands in the data moat by snapshot count."""
     db = get_db()
     q = "SELECT brand, COUNT(*) as count FROM price_snapshots WHERE brand != '' AND price > 0"
@@ -111,7 +117,9 @@ def analytics_indicators(
     country: str | None = None,
     line: str | None = None,
     limit: int = 50,
+    authorization: str | None = Header(None),
 ):
+    require_api_key(authorization)
     """Latest indicator values from the data moat (internal + public API sources)."""
     db = get_db()
     values = get_latest_values(db, country=country, line=line, limit=limit)

@@ -19,7 +19,7 @@ from market_core import (
     db_remove_cart_item,
     db_update_cart_item,
 )
-from server_deps import require_user
+from server_deps import require_api_key
 
 router = APIRouter(tags=["cart"])
 
@@ -44,7 +44,7 @@ def _cart_total(cart: list[dict]) -> float:
 
 @router.post("/cart/add")
 def cart_add(body: AddToCartRequest, authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     store_name = STORES.get(body.store, {}).get("name", body.store)
     cart_id = db_add_to_cart(
         username, body.product_id, body.name, body.price,
@@ -62,7 +62,7 @@ def cart_add(body: AddToCartRequest, authorization: str | None = Header(None)):
 
 @router.get("/cart")
 def view_cart(authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     cart = db_get_cart(username)
     return {
         "username": username,
@@ -74,7 +74,7 @@ def view_cart(authorization: str | None = Header(None)):
 
 @router.put("/cart/update")
 def cart_update(body: UpdateCartRequest, authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     cart = db_get_cart(username)
     item = next(
         (i for i in cart if i["cart_id"] == body.product_id or i["product_id"] == body.product_id),
@@ -89,7 +89,7 @@ def cart_update(body: UpdateCartRequest, authorization: str | None = Header(None
 
 @router.delete("/cart/{product_id}")
 def cart_remove(product_id: str, authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     cart = db_get_cart(username)
     item = next(
         (i for i in cart if i["cart_id"] == product_id or i["product_id"] == product_id),

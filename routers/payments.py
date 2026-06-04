@@ -47,7 +47,7 @@ from market_core import (
     db_get_cart,
 )
 from market_security import is_production_deploy, paypal_allow_unverified_webhooks
-from server_deps import check_rate_limit, require_checkout_access, require_user
+from server_deps import check_rate_limit, require_api_key, require_checkout_access
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +155,7 @@ async def _handle_paypal_event(event: dict) -> dict:
 
 @router.post("/checkout/yape")
 def checkout_yape(authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     _, total, order_id = _prepare_pending_order(username, "yape")
     yape_number = os.getenv("YAPE_PLIN_NUMBER", "")
     qr_data = yape_number or f"yape-{order_id.lower()}"
@@ -178,7 +178,7 @@ def checkout_yape(authorization: str | None = Header(None)):
 
 @router.post("/checkout/lemon")
 async def checkout_lemon(authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     _, total, order_id = _prepare_pending_order(username, "lemon")
     from market_connectors.lemon_payments import create_checkout
 
@@ -205,7 +205,7 @@ async def checkout_lemon(authorization: str | None = Header(None)):
 
 @router.post("/checkout/paypal")
 async def checkout_paypal(authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     _, total, order_id = _prepare_pending_order(username, "paypal")
     from market_connectors.paypal_payments import create_order
 
@@ -237,7 +237,7 @@ async def checkout_paypal_capture(
     authorization: str | None = Header(None),
 ):
     """Capture after buyer returns from PayPal (backup if webhook is delayed)."""
-    require_user(authorization)
+    require_api_key(authorization)
     if not paypal_order_id:
         raise HTTPException(status_code=400, detail="paypal_order_id required")
     from market_connectors.paypal_payments import capture_order
@@ -253,7 +253,7 @@ async def checkout_paypal_capture(
 
 @router.post("/checkout/wise")
 async def checkout_wise(authorization: str | None = Header(None)):
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     _, total, order_id = _prepare_pending_order(username, "wise")
     from market_connectors.wise_payments import WISE_API_TOKEN
 
@@ -482,7 +482,7 @@ def request_pro_subscription(body: dict, authorization: str | None = Header(None
         username = (body.get("username") or "").strip()
         if authorization:
             try:
-                username = require_user(authorization)
+                username = require_api_key(authorization)
             except HTTPException:
                 if not username:
                     raise
@@ -504,7 +504,7 @@ def request_pro_subscription(body: dict, authorization: str | None = Header(None
 @router.post("/billing/paypal")
 async def billing_paypal(authorization: str | None = Header(None)):
     """PayPal Subscription for Pro plan ($49/mo)."""
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     try:
         from market_connectors.paypal_payments import create_subscription
 
@@ -529,7 +529,7 @@ async def billing_paypal(authorization: str | None = Header(None)):
 @router.post("/billing/checkout")
 def billing_checkout(authorization: str | None = Header(None)):
     """Stripe Checkout for Pro subscription upgrade."""
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     stripe_key = os.getenv("STRIPE_SECRET_KEY", "")
     if not stripe_key:
         raise HTTPException(status_code=501, detail="Stripe not configured")

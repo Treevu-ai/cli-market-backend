@@ -21,10 +21,11 @@ import subprocess
 import tempfile
 
 import httpx
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Header, HTTPException, UploadFile
 
 from market_core import get_db
 from market_security import validate_public_http_url
+from server_deps import require_api_key
 
 router = APIRouter(tags=["media"])
 
@@ -47,7 +48,8 @@ async def _fetch_public_url(url: str) -> bytes:
 # ── Ticket scanning (OCR via tesseract) ───────────────────────────────────────
 
 @router.post("/v1/ticket/scan")
-async def ticket_scan(file: UploadFile = File(...), country: str | None = None):
+async def ticket_scan(file: UploadFile = File(...), country: str | None = None, authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Upload a ticket image → OCR → match each line against the data moat
     to surface potential savings vs the cheapest known store."""
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
@@ -103,8 +105,9 @@ async def ticket_scan(file: UploadFile = File(...), country: str | None = None):
 
 
 @router.post("/v1/ticket/scan-url")
-async def ticket_scan_url(body: dict):
+async def ticket_scan_url(body: dict, authorization: str | None = Header(None)):
     """OCR from a public image URL. Same as /v1/ticket/scan but without upload."""
+    require_api_key(authorization)
     url = body.get("url", "")
     country = body.get("country")
     content = await _fetch_public_url(url)
@@ -127,7 +130,8 @@ async def ticket_scan_url(body: dict):
 # ── Voice transcription (Whisper) ─────────────────────────────────────────────
 
 @router.post("/v1/voice/transcribe")
-async def voice_transcribe(file: UploadFile = File(...)):
+async def voice_transcribe(file: UploadFile = File(...), authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Audio upload → Whisper transcription (ES, tiny model). Returns plain text."""
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         tmp.write(await file.read())
@@ -155,7 +159,8 @@ async def voice_transcribe(file: UploadFile = File(...)):
 
 
 @router.post("/v1/voice/transcribe-url")
-async def voice_transcribe_url(body: dict):
+async def voice_transcribe_url(body: dict, authorization: str | None = Header(None)):
+    require_api_key(authorization)
     """Transcribe audio from a public URL."""
     url = body.get("url", "")
     suffix = ".ogg"

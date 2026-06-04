@@ -17,7 +17,7 @@ from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
 from market_core import db_get_orders
-from server_deps import require_user
+from server_deps import require_api_key
 
 router = APIRouter(tags=["agent"])
 
@@ -30,7 +30,7 @@ class AskRequest(BaseModel):
 def agent_preferences(authorization: str | None = Header(None)):
     """Order history → favorite stores + total spent. Used by the CLI to
     personalize results."""
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     user_orders = db_get_orders(username)
     stores: dict[str, float] = {}
     total_spent = 0.0

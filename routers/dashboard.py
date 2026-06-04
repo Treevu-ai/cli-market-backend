@@ -25,7 +25,7 @@ from dashboard_quality import build_quality_funnel, count_flagged_discounts
 from data_v1_service import count_flagged_outliers
 from dashboard_renderer import render_dashboard_html
 from dashboard_view_model import build_dashboard_view_model
-from server_deps import require_admin, require_user
+from server_deps import require_admin, require_api_key, require_user
 
 from .health import _age_hours, derive_collector_status
 
@@ -924,16 +924,20 @@ def _static_dashboard() -> str:
 @router.get("/dashboard/usage")
 def dashboard_usage(authorization: str | None = Header(None)):
     """Per-user usage view."""
-    username = require_user(authorization)
+    username = require_api_key(authorization)
     sub = db_get_subscription(username)
     tier = sub.get("tier", "free")
     limits = TIERS.get(tier, TIERS["free"])
     db = get_db()
+    import time as _time
+    today_start = _time.mktime(_time.strptime(
+        _time.strftime("%Y-%m-%d", _time.gmtime()), "%Y-%m-%d"
+    ))
     today_reqs = (
         db.execute(
             "SELECT SUM(counter) as n FROM rate_limits "
-            "WHERE key LIKE ? AND window_start >= ?",
-            ("%:daily", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+            "WHERE key=? AND window_start >= ?",
+            (f"u:{username}:daily", today_start),
         ).fetchone()["n"] or 0
     )
     keys = db.execute(
