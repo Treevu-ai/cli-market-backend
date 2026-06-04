@@ -607,6 +607,23 @@ def _dashboard_data():
         if s not in stores_fresh_24h
     )[:10]
 
+    # ── Health breakdown: separate "stale" (worked, not fresh) from "dead" ─────
+    # A store with a healthy lifetime success rate that simply hasn't refreshed
+    # in 24h is stale, not broken — collapsing both into "not healthy" hid that
+    # 0 stores are actually failing (success_pct < 30).
+    health_breakdown = {"ok": 0, "partial": 0, "dead": 0, "stale": 0}
+    for h in store_health:
+        pct = float(h.get("success_pct") or 0)
+        fresh = h.get("store") in stores_fresh_24h
+        if pct < 30:
+            health_breakdown["dead"] += 1
+        elif pct >= 80:
+            health_breakdown["ok"] += 1
+            if not fresh:
+                health_breakdown["stale"] += 1
+        else:
+            health_breakdown["partial"] += 1
+
     # ── Operacional: collector run history ───────────────────────────────────
     collector_history = db.execute(
         """SELECT started_at, finished_at, stores_attempted, stores_succeeded,
@@ -789,6 +806,9 @@ def _dashboard_data():
             "catalog_stores": len(STORES),
             "healthy_stores": healthy_count,
             "store_success_pct": round(healthy_count / len(get_default_stores()) * 100, 1) if get_default_stores() else 0,
+            "health_breakdown": health_breakdown,
+            "stores_dead": health_breakdown["dead"],
+            "stores_stale": health_breakdown["stale"],
             "coverage_7d_pct": coverage_7d_pct,
             "stores_fresh_24h": len(stores_fresh_24h),
             "fresh_24h_pct": fresh_24h_pct,
@@ -799,7 +819,7 @@ def _dashboard_data():
         },
         "moat_summary": {
             "purpose": "Verified cross-retailer prices for agent compare, basket, and inflation signals.",
-            "refresh_hours": 8,
+            "refresh_hours": 4,
             "total_indexed": total_indexed,
             "unique_products": unique_products,
             "stores_indexed": stores_indexed,
@@ -815,6 +835,7 @@ def _dashboard_data():
             "marketing_gate_pct": 80,
             "marketing_gate_pass": coverage_7d_pct >= 80,
             "stale_stores": moat_stale,
+            "health_breakdown": health_breakdown,
             "agent_surfaces": [
                 "market compare", "market basket", "market indicators", "market scores",
                 "market enrichment", "market enrichment --refresh",
