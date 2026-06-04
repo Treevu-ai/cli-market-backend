@@ -1,11 +1,9 @@
-httpx>=0.27.0
-fastapi>=0.115.0
-uvicorn>=0.30.0
-asyncpg
+# Shared core library — single source of truth for the data-moat modules.
+# Pinned to a specific commit so the collector deploy is reproducible.
+cli-market-core @ git+https://github.com/Treevu-ai/cli-market-core@cb9b4c90cdd6765c89634803b3e39b680ab66e94
+
+# Runtime / dev deps not pulled in transitively by cli-market-core.
 playwright>=1.45.0
-pydantic>=2.0.0
-python-multipart>=0.0.9
-psycopg2-binary>=2.9
 python-dotenv>=1.0.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
