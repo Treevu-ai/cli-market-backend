@@ -145,6 +145,19 @@ def contact_request(body: dict):
     db.commit()
     db.close()
 
+    try:
+        from market_connectors.email_outbound import send_contact_notify
+        send_contact_notify(
+            email=email,
+            plan=plan,
+            profile=profile,
+            name=name,
+            company=company,
+            use_case=use_case,
+        )
+    except Exception:
+        pass
+
     if plan == "pro":
         from routers.payments import process_pro_subscription_request
 
