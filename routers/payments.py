@@ -134,6 +134,24 @@ async def _handle_paypal_event(event: dict) -> dict:
             if sub_id:
                 db_delete_billing_pending(sub_id)
             actions.append(f"pro_activated:{username}")
+            # Auto-generate read_write API key and email it to the subscriber
+            try:
+                from market_core import db_create_api_key, db_get_user_email
+                key_data = db_create_api_key(username, "read_write", "pro")
+                email = db_get_user_email(username)
+                if email:
+                    from market_connectors.email_outbound import send_credentials_email
+                    send_credentials_email(
+                        to_email=email,
+                        username=username,
+                        api_key=key_data["key"],
+                        plan="pro",
+                    )
+                    actions.append(f"key_emailed:{key_data['prefix']}")
+                else:
+                    actions.append(f"key_generated_no_email:{key_data['prefix']}")
+            except Exception as _ke:
+                logger.warning("key generation failed for %s: %s", username, _ke)
         else:
             actions.append(f"subscription_no_user:{sub_id}")
 

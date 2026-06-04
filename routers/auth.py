@@ -24,6 +24,7 @@ from market_core import (
     db_list_api_keys,
     db_revoke_api_key,
     db_save_user,
+    db_set_subscription,
 )
 from server_deps import (
     check_auth_brute_force,
@@ -58,6 +59,7 @@ def register():
     username = f"user-{uuid.uuid4().hex[:12]}"
     # Random password — access is via sk- API key, not password login.
     db_save_user(username, hash_password(uuid.uuid4().hex), None)
+    db_set_subscription(username, "free")
     result = db_create_api_key(username, "read_write", "register")
     return {
         "username": username,
