@@ -29,6 +29,7 @@ from market_core import (
 )
 from server_deps import require_api_key
 from market_core import user_can_checkout
+from index_gate import enrich_list
 
 router = APIRouter(tags=["orders"])
 
@@ -83,11 +84,13 @@ def order_status(order_id: str, authorization: str | None = Header(None)):
     if not order:
         db.close()
         raise HTTPException(status_code=404, detail="Order not found")
-    items = db.execute(
+    items_raw = db.execute(
         "SELECT * FROM app_order_items WHERE order_id=?", (order_id,)
     ).fetchall()
     db.close()
-    return {"order": dict(order), "items": [dict(i) for i in items]}
+    items = [dict(i) for i in items_raw]
+    enrich_list(items)
+    return {"order": dict(order), "items": items}
 
 
 @router.get("/orders/{order_id}/receipt")
