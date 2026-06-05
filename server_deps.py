@@ -136,7 +136,7 @@ def require_checkout_access(username: str) -> None:
     raise HTTPException(
         status_code=403,
         detail=(
-            "Checkout requires CLI Market Pro ($49/mo). "
+            "Checkout requires CLI Market Pro ($79/mo). "
             "Run: market upgrade"
         ),
     )
