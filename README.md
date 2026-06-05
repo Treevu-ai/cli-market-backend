@@ -1,5 +1,7 @@
 # cli-market-backend
 
+[![CI](https://github.com/Treevu-ai/cli-market-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Treevu-ai/cli-market-backend/actions/workflows/ci.yml)
+
 FastAPI backend powering the [CLI Market](https://cli-market.dev) production API — 66 retailers, 45,000+ shelf prices, 43 MCP tools.
 
 ![Python 3.11](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-latest-green) ![Railway](https://img.shields.io/badge/Deploy-Railway-blueviolet) ![MIT](https://img.shields.io/badge/License-MIT-lightgrey)
