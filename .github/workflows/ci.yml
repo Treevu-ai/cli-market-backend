@@ -9,24 +9,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    env:
-      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
-      CI: "true"
-      MARKET_SKIP_LIVE: "1"
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v6
@@ -36,7 +18,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest
+        run: |
+          grep -v "cli-market-core" requirements.txt > /tmp/reqs-ci.txt
+          pip install -r /tmp/reqs-ci.txt
 
       - name: Run tests
         run: pytest tests/ -q -m "not integration"
