@@ -168,9 +168,11 @@ def dashboard():
     from fastapi.responses import HTMLResponse
     try:
         html = _static_dashboard()
-    except Exception as e:
-        import traceback
-        html = f"<pre>STATIC DASHBOARD CRASH:\n{e}\n\n{traceback.format_exc()}</pre>"
+    except Exception:
+        # Log full error server-side, return generic message to client
+        import logging
+        logging.exception("Dashboard generation failed")
+        html = "<pre>Dashboard unavailable. Please try again later.</pre>"
     return HTMLResponse(html)
 
 
@@ -179,9 +181,11 @@ def dashboard_data():
     """Business-intelligence feed for the Data Moat dashboard."""
     try:
         return _cached_dashboard_data()
-    except Exception as e:
-        import traceback
-        return {"error": str(e), "trace": traceback.format_exc()[-400:]}
+    except Exception:
+        # Log full error server-side, return generic message to client
+        import logging
+        logging.exception("Dashboard data generation failed")
+        return {"error": "Dashboard data unavailable", "detail": "Please try again later"}
 
 
 @router.post("/dashboard/collector/trigger")
@@ -909,9 +913,11 @@ def _static_dashboard() -> str:
     """Server-rendered dashboard — single renderer from dashboard_view + metric_glossary."""
     try:
         data = _cached_dashboard_data()
-    except Exception as e:
-        import traceback
-        return f"<pre>ERROR: {e}\n{traceback.format_exc()}</pre>"
+    except Exception:
+        # Log full error server-side, return generic message to client
+        import logging
+        logging.exception("Dashboard data fetch failed")
+        return "<pre>Dashboard data unavailable. Please try again later.</pre>"
     if "error" in data:
         return (
             f"<html><body style='background:#0a0a0a;color:#ff4444;"

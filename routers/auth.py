@@ -75,7 +75,9 @@ def login(body: LoginRequest):
     check_auth_brute_force(body.username)
     users = db_get_users()
     if not users:
-        admin_pass = os.getenv("MARKET_ADMIN_PASSWORD", "market")
+        admin_pass = os.getenv("MARKET_ADMIN_PASSWORD")
+        if not admin_pass:
+            raise HTTPException(status_code=500, detail="MARKET_ADMIN_PASSWORD not set")
         db_save_user("admin", hash_password(admin_pass), str(uuid.uuid4()))
         users = db_get_users()
     user = users.get(body.username)

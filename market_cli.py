@@ -763,7 +763,7 @@ def cmd_hello(args):
             "[bold #00FF88]Welcome to CLI Market[/]\n\n"
             f"Commerce API for AI agents — {RETAILERS_VERIFIED} retailers, {MCP_TOOLS} MCP tools.\n\n"
             "[bold]Next steps:[/]\n"
-            "  1. [cyan]market login[/] — free API access (admin / market)\n"
+            "  1. [cyan]market login[/] — free API access\n"
             "  2. [cyan]market search \"milk\" --country PE[/] — try a search\n"
             "  3. Connect MCP in Cursor/Claude → [cyan]https://cli-market.dev/tools[/]\n"
             "  4. [cyan]market share[/] — referral link\n\n"
@@ -776,7 +776,7 @@ def cmd_hello(args):
             "[bold #00FF88]Bienvenido a CLI Market[/]\n\n"
             f"Infraestructura de comercio para agentes IA — {RETAILERS_VERIFIED} retailers, {MCP_TOOLS} herramientas MCP.\n\n"
             "[bold]Próximos pasos:[/]\n"
-            "  1. [cyan]market login[/] — acceso gratis (admin / market)\n"
+            "  1. [cyan]market login[/] — acceso gratis\n"
             "  2. [cyan]market search \"leche\" --country PE[/] — prueba una búsqueda\n"
             "  3. Conecta MCP en Cursor/Claude → [cyan]https://cli-market.dev/tools[/]\n"
             "  4. [cyan]market share[/] — link de referido\n\n"
@@ -850,8 +850,8 @@ def main():
 
     # login
     p = sub.add_parser("login", help=t("login"))
-    p.add_argument("--username", default="admin", help=t("username"))
-    p.add_argument("--password", default="market", help=t("password"))
+    p.add_argument("--username", default="", help=t("username"))
+    p.add_argument("--password", default="", help=t("password"))
 
     # search
     p = sub.add_parser("search", help=t("search"))
