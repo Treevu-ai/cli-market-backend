@@ -15,6 +15,7 @@ from fastapi import APIRouter, Header
 from market_core import get_db
 from market_indicators import get_indicator_catalog, get_latest_values
 from server_deps import require_api_key
+from index_gate import enrich_list
 
 router = APIRouter(tags=["analytics"])
 
@@ -44,7 +45,9 @@ def price_history(
     params.append(limit)
     rows = db.execute(q, params).fetchall()
     db.close()
-    return {"count": len(rows), "snapshots": [dict(r) for r in rows]}
+    snapshots = [dict(r) for r in rows]
+    enrich_list(snapshots)
+    return {"count": len(snapshots), "snapshots": snapshots}
 
 
 @router.get("/analytics/stats")
@@ -92,7 +95,9 @@ def analytics_trending(country: str | None = None, line: str | None = None, limi
     params.append(limit * 2)
     rows = db.execute(q, params).fetchall()
     db.close()
-    return {"trending": [dict(r) for r in rows], "total": len(rows)}
+    trending = [dict(r) for r in rows]
+    enrich_list(trending)
+    return {"trending": trending, "total": len(trending)}
 
 
 @router.get("/analytics/brands")

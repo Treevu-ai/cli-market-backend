@@ -20,6 +20,7 @@ from market_core import (
     db_update_cart_item,
 )
 from server_deps import require_api_key
+from index_gate import enrich_list
 
 router = APIRouter(tags=["cart"])
 
@@ -51,6 +52,7 @@ def cart_add(body: AddToCartRequest, authorization: str | None = Header(None)):
         body.store, store_name, body.quantity, body.url or "",
     )
     cart = db_get_cart(username)
+    enrich_list(cart)
     return {
         "message": "Agregado al carrito",
         "cart": cart,
@@ -64,6 +66,7 @@ def cart_add(body: AddToCartRequest, authorization: str | None = Header(None)):
 def view_cart(authorization: str | None = Header(None)):
     username = require_api_key(authorization)
     cart = db_get_cart(username)
+    enrich_list(cart)
     return {
         "username": username,
         "cart": cart,
@@ -84,6 +87,7 @@ def cart_update(body: UpdateCartRequest, authorization: str | None = Header(None
         raise HTTPException(status_code=404, detail="Producto no encontrado en el carrito")
     db_update_cart_item(username, int(item["cart_id"]), body.quantity)
     cart = db_get_cart(username)
+    enrich_list(cart)
     return {"message": "Carrito actualizado", "cart": cart}
 
 
@@ -99,6 +103,7 @@ def cart_remove(product_id: str, authorization: str | None = Header(None)):
         raise HTTPException(status_code=404, detail="Producto no encontrado en el carrito")
     db_remove_cart_item(username, int(item["cart_id"]))
     cart = db_get_cart(username)
+    enrich_list(cart)
     return {
         "message": "Producto eliminado del carrito",
         "cart": cart,

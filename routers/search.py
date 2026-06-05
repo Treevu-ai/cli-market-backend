@@ -36,6 +36,7 @@ from market_core import (
 )
 from store_credentials import get_store_profile, store_exists
 from server_deps import require_api_key
+from index_gate import enrich_list
 
 logger = logging.getLogger("market.server").getChild("search")
 
@@ -129,6 +130,10 @@ async def _search_products(body: SearchRequest):
         save_price_snapshot(p)
     save_search_query(body.query, body.line, body.store, len(results))
 
+    # ── Index Enrichment ──
+    enrich_list(results)
+    # ─────────────────────
+
     response: dict = {"query": body.query, "results": results, "total": len(results)}
     if errors:
         response["partial"] = True
@@ -210,6 +215,9 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
                 )
 
     comparison.sort(key=lambda x: x["best_price"])
+    # ── Index Enrichment ──
+    enrich_list(comparison)
+    # ─────────────────────
     return {"query": body.query, "comparison": comparison, "stores_compared": len(stores)}
 
 
@@ -264,6 +272,10 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
                 "items_found": len(found),
                 "items_requested": len(body.items),
             }
+    # ── Index Enrichment ──
+    for store_data in results.values():
+        enrich_list(store_data["items"], store_key=store_data.get("store_name", ""))
+    # ─────────────────────
     best = min(results, key=lambda s: results[s]["total"]) if results else None
     return {
         "source": "live",
