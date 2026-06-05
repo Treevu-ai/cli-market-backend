@@ -833,7 +833,7 @@ def cmd_upgrade(args):
         )
 
     console.print(Panel.fit(
-        f"[bold #00FF88]CLI Market Pro — $49/mo[/]\n\n{msg}\n\n"
+        f"[bold #00FF88]CLI Market Pro — $79/mo[/]\n\n{msg}\n\n"
         "[dim]Tras pagar, responde al email con tu usuario CLI para activar Pro.[/]",
         title="Upgrade",
         border_style="#00FF88",
