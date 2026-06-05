@@ -96,6 +96,28 @@ Payments: PayPal + QR Yape/Plin.
 
 ---
 
+## Semantic enrichment pipeline
+
+Every product that passes through the API is enriched with canonical identities from `cli-market-index`:
+
+```
+collect_prices.py (4h cycle)
+       |
+       v
+  search / orders routers
+       |
+       v
+  index_gate.enrich_list()   -- identical to cli-market-index/index_gate.py
+       |
+       v
+  normalized units + brands  -- from cli-market-index normalizers (single source of truth)
+       |
+       v
+  'index' block in response  -> { id, canonical_name, confidence, measurement }
+```
+
+The `index_gate.py` bridge imports normalizers directly from `cli-market-index` as the canonical source.
+
 ## Full docs
 
 See the main repo for full documentation, MCP tool list, and integration guides:
