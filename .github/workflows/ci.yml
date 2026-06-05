@@ -18,9 +18,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: |
-          grep -v "cli-market-core" requirements.txt > /tmp/reqs-ci.txt
-          pip install -r /tmp/reqs-ci.txt
+        run: pip install -r requirements.txt
 
       - name: Run tests
         run: pytest tests/ -q -m "not integration"
