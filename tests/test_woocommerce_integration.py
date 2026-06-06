@@ -18,7 +18,7 @@ for p in (REPO_ROOT, CORE_ROOT):
 @pytest.mark.asyncio
 async def test_xray_pe_store_api_search():
     from market_connectors.woocommerce import WooCommerceConnector
-    from store_credentials import resolve_store_config
+    from market_core.store_credentials import resolve_store_config
 
     cfg = resolve_store_config("xray_pe")
     connector = WooCommerceConnector()
