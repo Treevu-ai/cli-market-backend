@@ -270,13 +270,32 @@ def _fetch_recent_snapshot_rows(db: Any, *, since_minutes: int, limit: int) -> l
 
 
 def _fetch_unlinked_snapshot_rows(db: Any, *, limit: int) -> list[Any]:
+    """One row per (store, product_id) so each batch covers new SKUs, not duplicate history rows."""
+    import market_core
+
+    if market_core.USE_PG:
+        return db.execute(
+            """
+            SELECT DISTINCT ON (store, product_id)
+              store, product_id, name, brand, price, currency
+            FROM price_snapshots
+            WHERE (canonical_product_id IS NULL OR canonical_product_id = '')
+              AND price > 0 AND name IS NOT NULL AND trim(name) != ''
+            ORDER BY store, product_id, queried_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        ).fetchall()
     return db.execute(
         """
-        SELECT store, product_id, name, brand, price, currency
+        SELECT store, product_id,
+               MAX(name) AS name, MAX(brand) AS brand,
+               MAX(price) AS price, MAX(currency) AS currency
         FROM price_snapshots
         WHERE (canonical_product_id IS NULL OR canonical_product_id = '')
           AND price > 0 AND name IS NOT NULL AND trim(name) != ''
-        ORDER BY queried_at DESC
+        GROUP BY store, product_id
+        ORDER BY store, product_id
         LIMIT ?
         """,
         (limit,),
@@ -362,7 +381,9 @@ def backfill_canonical_product_ids(
     finally:
         db.close()
 
-    return _index_snapshot_rows(rows, dry_run=dry_run)
+    stats = _index_snapshot_rows(rows, dry_run=dry_run)
+    stats["fetched"] = len(rows)
+    return stats
 
 
 def certify_round(

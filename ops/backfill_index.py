@@ -63,8 +63,14 @@ def main() -> int:
         )
         for key in total:
             total[key] += stats.get(key, 0)
+        if stats.get("fetched", 0) == 0:
+            log.info("no unlinked SKUs remaining — done")
+            break
         if stats.get("resolved", 0) == 0:
-            log.info("no more unlinked rows in window — stopping early")
+            log.info(
+                "batch had %d distinct unlinked SKUs but none resolved — stopping",
+                stats.get("fetched", 0),
+            )
             break
 
     after = index_stats()
