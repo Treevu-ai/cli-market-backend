@@ -141,17 +141,18 @@ async def mercadopago_status(test: bool = False):
         "currency": os.getenv("MERCADOPAGO_CURRENCY", "PEN").upper(),
         "notification_url": mp.notification_url(),
         "env_keys": {
-            "sandbox_token": bool(
-                os.getenv("MERCADOPAGO_ACCESS_TOKEN_SANDBOX")
-                or os.getenv("MERCADOPAGO_ACCESS_TOKEN_TEST")
-            ),
-            "production_token": bool(
-                os.getenv("MERCADOPAGO_ACCESS_TOKEN_PRODUCTION")
-                or os.getenv("MERCADOPAGO_ACCESS_TOKEN_PROD")
-            ),
-            "single_token": bool(
-                os.getenv("MERCADOPAGO_ACCESS_TOKEN") or os.getenv("MP_ACCESS_TOKEN")
-            ),
+            k: bool(os.getenv(k, "").strip())
+            for k in (
+                "MERCADOPAGO_ACCESS_TOKEN",
+                "MERCADOPAGO_ACCESS_TOKEN_SANDBOX",
+                "MERCADOPAGO_ACCESS_TOKEN_PRODUCTION",
+                "MERCADO_PAGO_ACCESS_TOKEN",
+                "MP_ACCESS_TOKEN",
+                "MERCADOPAGO_PUBLIC_KEY",
+                "MERCADOPAGO_SANDBOX",
+                "MERCADOPAGO_WEBHOOK_URL",
+                "RAILWAY_PUBLIC_DOMAIN",
+            )
         },
         "endpoints": [
             "/checkout/mercadopago",
