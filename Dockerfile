@@ -12,7 +12,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Force layer rebuild on deploy (2026-06-01-refresh-v2)
-ARG CACHE_BUST=2026-06-06-semantic
+ARG CACHE_BUST=2026-06-06-shims-fix
 COPY *.py pyproject.toml ./
 COPY routers/ ./routers/
 COPY ops/ ./ops/
