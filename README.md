@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Treevu-ai/cli-market-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Treevu-ai/cli-market-backend/actions/workflows/ci.yml)
 
-FastAPI backend powering the [CLI Market](https://cli-market.dev) production API — 66 retailers, 45,000+ shelf prices, 43 MCP tools.
+FastAPI backend powering the [CLI Market](https://cli-market.dev) production API — 68 retailers (VTEX · Shopify · Magento · WooCommerce), 46,000+ shelf prices, Mercado Pago + PayPal checkout.
 
 ![Python 3.11](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-latest-green) ![Railway](https://img.shields.io/badge/Deploy-Railway-blueviolet) ![MIT](https://img.shields.io/badge/License-MIT-lightgrey)
 
@@ -36,10 +36,11 @@ Interactive docs: <https://cli-market-production.up.railway.app/docs>
 |---|---|---|
 | `auth` | `/auth` | Registration, login, API key issuance, plan gating |
 | `search` | `/search` | Product search and cross-retailer price comparison |
-| `retailers` | `/retailers` | Store catalog — 66 retailers (36 verified), 8 countries |
+| `retailers` | `/retailers` | Store catalog — 68 retailers, 8 countries, 4 platforms |
 | `cart` | `/cart` | Cart CRUD, basket comparison across retailers |
 | `orders` | `/orders` | Order history, reorder, status tracking |
-| `payments` | `/payments` | PayPal + QR Yape/Plin checkout flows |
+| `payments` | `/payments` | PayPal · Mercado Pago · QR Yape/Plin checkout |
+| `mercadopago` | `/checkout/mercadopago` | Mercado Pago Checkout Pro (PEN, webhooks) |
 | `alerts` | `/alerts` | Price alert CRUD (email + webhook) |
 | `analytics` | `/analytics` | Usage stats, request metrics per API key |
 | `dashboard` | `/dashboard` | Live coverage, scrape quality, P25/P50/P75 spreads |
@@ -94,7 +95,9 @@ pytest tests/
 | Builder | $149/mo | 50,000 |
 | Enterprise | Custom | Unlimited |
 
-Payments: PayPal + QR Yape/Plin.
+Payments: PayPal · Mercado Pago · QR Yape/Plin.
+
+FMCG WooCommerce pilot: see [docs/FMCG_PILOT_NUNAORGANICA.md](docs/FMCG_PILOT_NUNAORGANICA.md).
 
 ---
 
