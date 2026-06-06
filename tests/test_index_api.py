@@ -99,6 +99,41 @@ def test_index_stats(isolated_db, index_env, monkeypatch):
     assert "linkage_pct" in body
 
 
+def test_index_backfill_admin(isolated_db, index_env, monkeypatch):
+    from fastapi.testclient import TestClient
+    from market_server import app
+
+    headers = _auth(monkeypatch)
+    market_core = isolated_db
+    market_core.ensure_db_initialized()
+    market_core.save_price_snapshot(
+        {
+            "id": "bf-api-1",
+            "product_id": "bf-api-1",
+            "name": "Leche Gloria 1L",
+            "brand": "Gloria",
+            "price": 4.5,
+            "list_price": 4.5,
+            "store": "wong",
+            "store_name": "Wong",
+            "currency": "PEN",
+            "line": "supermercados",
+            "line_name": "Supermercados",
+        }
+    )
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/index/backfill",
+            headers=headers,
+            params={"limit": 10, "batches": 1},
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["totals"]["linked"] >= 1
+    assert "before" in body and "after" in body
+
+
 def test_index_lookup_404(isolated_db, index_env, monkeypatch):
     from fastapi.testclient import TestClient
     from market_server import app
