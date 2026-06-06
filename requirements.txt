@@ -2,8 +2,8 @@
 # Pinned to a specific commit so the collector deploy is reproducible.
 cli-market-core @ git+https://github.com/Treevu-ai/cli-market-core@cb9b4c90cdd6765c89634803b3e39b680ab66e94
 
-# Semantic enrichment normalizers used by index_gate.py.
-cli-market-index @ git+https://github.com/Treevu-ai/cli-market-index@37ddf2279aa3a934c7c3a1b284aa3566e20863ad
+# Semantic moat — Golden Record persistence (SQLite dev / Postgres prod).
+cli-market-index[postgres] @ git+https://github.com/Treevu-ai/cli-market-index@bb6cccf9afa5675012cbe8d50d13f35a22e060cc
 
 # Runtime / dev deps not pulled in transitively by cli-market-core.
 playwright>=1.45.0

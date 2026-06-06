@@ -118,7 +118,7 @@ collect_prices.py (4h cycle)
   'index' block in response  -> { id, canonical_name, confidence, measurement }
 ```
 
-The `index_gate.py` bridge imports normalizers directly from `cli-market-index` as the canonical source.
+The `index_gate.py` bridge delegates to `cli-market-index` `IndexService` with persistent Golden Records (Postgres in production, SQLite in dev).
 
 ## Full docs
 
