@@ -1,6 +1,6 @@
 # Shared core library — single source of truth for the data-moat modules.
 # Pinned to a specific commit so the collector deploy is reproducible.
-cli-market-core @ git+https://github.com/Treevu-ai/cli-market-core@b8058c424cfe72f1761f22f7642ed25471a0c391
+cli-market-core @ git+https://github.com/Treevu-ai/cli-market-core@3c6a830eff6c7e4e6c3fd56e231a33dff7dcb58b
 
 # Semantic moat — Golden Record persistence (SQLite dev / Postgres prod).
 cli-market-index[postgres] @ git+https://github.com/Treevu-ai/cli-market-index@2bfa6d210fc429e1c9c7780d7df9158eb0713a66
