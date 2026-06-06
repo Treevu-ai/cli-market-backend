@@ -65,6 +65,8 @@ def approve_application(
             storefront_token=(payload.get("storefront_token") or "").strip(),
             vtex_app_key=(payload.get("vtex_app_key") or "").strip(),
             vtex_app_token=(payload.get("vtex_app_token") or "").strip(),
+            wc_consumer_key=(payload.get("wc_consumer_key") or "").strip(),
+            wc_consumer_secret=(payload.get("wc_consumer_secret") or "").strip(),
             line=(payload.get("line") or "supermercados").strip(),
             review_notes=(payload.get("review_notes") or payload.get("notes") or "").strip(),
         )
@@ -82,7 +84,7 @@ def approve_application(
         if code == "website_or_credentials_required":
             raise HTTPException(
                 status_code=400,
-                detail="VTEX public stores need website URL or VTEX app credentials",
+                detail="VTEX/WooCommerce stores need website URL or platform credentials",
             ) from e
         raise HTTPException(status_code=400, detail=code) from e
 

@@ -112,7 +112,8 @@ def apply_retailer(body: dict):
             "notify you by email within 24 hours. Free forever."
         ),
         "next_steps": [
-            "Keep your read-only API token ready (Shopify/Magento) or confirm VTEX public catalog.",
+            "VTEX: public catalog URL or app key/token. Shopify/Magento: read-only API token.",
+            "WooCommerce: store URL (Store API) or REST consumer key + secret for full catalog.",
             "Track status: hello@cli-market.dev with your application ID.",
         ],
     }
