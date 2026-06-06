@@ -21,7 +21,11 @@ watchPatterns = [
 restartPolicyType = "ON_FAILURE"
 numReplicas = 1
 
-# Suggested Variables on this service:
+# Required build-time variable (private git deps in requirements.txt):
+#   GITHUB_TOKEN=<fine-grained or classic PAT with read access to Treevu-ai/*>
+#   Enable "Available at Build Time" in Railway → Variables.
+#
+# Suggested runtime variables on this service:
 #   DATABASE_URL=${{Postgres.DATABASE_URL}}
 #   COLLECT_PARALLEL=6
 #   COLLECT_DELAY=0.75
