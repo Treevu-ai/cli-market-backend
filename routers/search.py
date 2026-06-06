@@ -120,7 +120,8 @@ async def _search_products(body: SearchRequest):
                 try:
                     prod = product_from_json(p, store)
                     prod["line"] = STORES[store]["line"]
-                    prod["line_name"] = LINES[STORES[store]["line"]]["name"]
+                    _line = STORES[store]["line"]
+                    prod["line_name"] = LINES.get(_line, {}).get("name", _line)
                     results.append(prod)
                 except Exception as pe:
                     errors.append({"store": store, "product_id": str(p)[:80], "error": str(pe)})

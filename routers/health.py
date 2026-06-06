@@ -263,7 +263,7 @@ def list_stores(country: str | None = None, line: str | None = None):
             "country": s["country"],
             "currency": s["currency"],
             "line": s["line"],
-            "line_name": LINES[s["line"]]["name"],
+            "line_name": LINES.get(s["line"], {}).get("name", s["line"]),
             "base": s["base"],
         }
     return {"stores": result, "total": len(result)}
