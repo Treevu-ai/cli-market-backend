@@ -23,7 +23,7 @@ from market_core import (
 router = APIRouter(tags=["retailers"])
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_PLATFORMS = {"vtex", "shopify", "magento", "other"}
+_PLATFORMS = {"vtex", "shopify", "magento", "woocommerce", "other"}
 
 
 def _insert_application(

@@ -561,15 +561,16 @@ CATALOG_INTERVAL_MINS = int(os.getenv("COLLECT_CATALOG_INTERVAL", "60"))
 _last_catalog_pull: float = 0.0
 
 async def collect_full_catalog_pg(pool, store: str) -> int:
-    from market_connectors.vtex import VtexConnector
+    from market_connectors import get_connector
     from store_credentials import resolve_store_config
 
     cfg = resolve_store_config(store)
-    if cfg.get("platform") != "vtex":
+    platform = cfg.get("platform", "vtex")
+    if platform not in ("vtex", "woocommerce"):
         return 0
-    vtex = VtexConnector()
+    connector = get_connector(platform)
     try:
-        all_raw = await vtex.fetch_all_products(cfg, max_pages=20)
+        all_raw = await connector.fetch_all_products(cfg, max_pages=20)
     except Exception as e:
         logger.warning("full catalog %s: %s", store, str(e)[:80])
         return 0
@@ -578,7 +579,7 @@ async def collect_full_catalog_pg(pool, store: str) -> int:
     line_name = LINES.get(line, {}).get("name", "")
     async with pool.acquire() as conn:
         for p in all_raw:
-            prod = vtex.normalize(p, store, cfg)
+            prod = connector.normalize(p, store, cfg)
             prod["line"] = line
             prod["line_name"] = line_name
             if prod.get("price", 0) <= 0:
@@ -625,7 +626,7 @@ async def run_full_catalog_pg(pool, stores: list[str]) -> int:
     _last_catalog_pull = now
     total = 0
     for store in stores:
-        if resolve_store_config(store).get("platform") != "vtex":
+        if resolve_store_config(store).get("platform") not in ("vtex", "woocommerce"):
             continue
         n = await collect_full_catalog_pg(pool, store)
         print(f"    📦 {store}: {n:,} products (full catalog)")
