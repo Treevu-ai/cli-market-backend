@@ -3,7 +3,7 @@
 cli-market-core @ git+https://github.com/Treevu-ai/cli-market-core@cb9b4c90cdd6765c89634803b3e39b680ab66e94
 
 # Semantic moat — Golden Record persistence (SQLite dev / Postgres prod).
-cli-market-index[postgres] @ git+https://github.com/Treevu-ai/cli-market-index@7d249dea18cc4e04ee2b505dc47218afbb2dcc8e
+cli-market-index[postgres] @ git+https://github.com/Treevu-ai/cli-market-index@2bfa6d210fc429e1c9c7780d7df9158eb0713a66
 
 # Runtime / dev deps not pulled in transitively by cli-market-core.
 playwright>=1.45.0
