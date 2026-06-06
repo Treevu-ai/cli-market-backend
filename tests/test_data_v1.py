@@ -46,6 +46,14 @@ def _seed_snapshot(
     )
 
 
+def _auth_headers(monkeypatch):
+    monkeypatch.setenv("MARKET_API_TOKEN", "test-token")
+    import server_deps
+
+    monkeypatch.setattr(server_deps, "DEFAULT_TOKEN", "test-token")
+    return {"Authorization": "Bearer test-token"}
+
+
 def test_quality_flagged_discount(isolated_db):
     market_core = isolated_db
     market_core.ensure_db_initialized()
@@ -126,7 +134,7 @@ def test_basket_snapshot_source(isolated_db):
     db.close()
 
 
-def test_coverage_matrix_api(isolated_db):
+def test_coverage_matrix_api(isolated_db, monkeypatch):
     market_core = isolated_db
     market_core.ensure_db_initialized()
     db = market_core.get_db()
@@ -137,15 +145,16 @@ def test_coverage_matrix_api(isolated_db):
     from fastapi.testclient import TestClient
     import market_server
 
+    headers = _auth_headers(monkeypatch)
     with TestClient(market_server.app) as client:
-        r = client.get("/v1/coverage/matrix")
+        r = client.get("/v1/coverage/matrix", headers=headers)
         assert r.status_code == 200
         body = r.json()
         assert "cells" in body
         assert "gaps" in body
 
 
-def test_v1_endpoints_registered(isolated_db):
+def test_v1_endpoints_registered(isolated_db, monkeypatch):
     market_core = isolated_db
     market_core.ensure_db_initialized()
     db = market_core.get_db()
@@ -154,6 +163,7 @@ def test_v1_endpoints_registered(isolated_db):
     from fastapi.testclient import TestClient
     import market_server
 
+    headers = _auth_headers(monkeypatch)
     with TestClient(market_server.app) as client:
         for path in (
             "/v1/quality/flagged?limit=1",
@@ -162,5 +172,5 @@ def test_v1_endpoints_registered(isolated_db):
             "/v1/basket",
             "/v1/coverage/matrix",
         ):
-            r = client.get(path)
+            r = client.get(path, headers=headers)
             assert r.status_code == 200, path
