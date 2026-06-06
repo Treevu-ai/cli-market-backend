@@ -12,9 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Force layer rebuild on deploy (2026-06-01-refresh-v2)
-ARG CACHE_BUST=1
+ARG CACHE_BUST=2026-06-06-semantic
 COPY *.py pyproject.toml ./
 COPY routers/ ./routers/
+COPY ops/ ./ops/
 
 RUN mkdir -p /data
 ENV MARKET_DATA_DIR=/data
