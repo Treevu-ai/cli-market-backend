@@ -96,36 +96,63 @@ async def _handle_mercadopago_payment(payment_id: str) -> dict:
 
 @router.api_route("/checkout/mercadopago-webhook", methods=["GET", "POST"])
 async def mercadopago_webhook(request: Request):
-    """Mercado Pago IPN (query) and Webhooks v1 (JSON body)."""
-    payment_id = ""
-    if request.method == "GET":
-        payment_id = request.query_params.get("id") or request.query_params.get("data.id") or ""
-        topic = request.query_params.get("topic", "")
-        if topic and topic != "payment":
-            return {"received": True, "ignored_topic": topic}
-    else:
+    """Mercado Pago Webhooks (preferred) and legacy IPN query notifications."""
+    from market_connectors.mercadopago_payments import (
+        parse_webhook_payment_id,
+        validate_webhook_signature,
+        webhook_secret,
+    )
+
+    body: dict = {}
+    if request.method == "POST":
         try:
-            body = await request.json()
+            parsed = await request.json()
+            if isinstance(parsed, dict):
+                body = parsed
         except Exception:
             body = {}
-        if isinstance(body, dict):
-            data = body.get("data") or {}
-            payment_id = str(data.get("id") or body.get("id") or "")
-            action = body.get("action", "")
-            if action and "payment" not in action.lower():
-                return {"received": True, "ignored_action": action}
+
+    flat_query = dict(request.query_params)
+    payment_id, ntype = parse_webhook_payment_id(query_params=flat_query, body=body)
+
+    topic = flat_query.get("topic", "")
+    if topic and topic not in ("payment", ""):
+        return {"received": True, "ignored_topic": topic}
+    if ntype and ntype not in ("payment", ""):
+        return {"received": True, "ignored_type": ntype}
+
+    action = str(body.get("action") or "")
+    if action and "payment" not in action.lower():
+        return {"received": True, "ignored_action": action}
+
+    x_signature = request.headers.get("x-signature", "")
+    x_request_id = request.headers.get("x-request-id", "")
+    data_id = flat_query.get("data.id", payment_id)
+    secret = webhook_secret()
+    if secret:
+        if not validate_webhook_signature(
+            x_signature=x_signature,
+            x_request_id=x_request_id,
+            data_id=data_id,
+            secret=secret,
+        ):
+            logger.warning("Mercado Pago webhook signature invalid")
+            raise HTTPException(status_code=401, detail="invalid x-signature")
 
     if not payment_id:
         return {"received": True, "message": "no payment id"}
+
     try:
         result = await _handle_mercadopago_payment(payment_id)
         logger.info("Mercado Pago webhook: %s", result)
         return {"received": True, **result}
     except ValueError:
-        raise HTTPException(status_code=503, detail="Mercado Pago not configured")
-    except Exception as e:
+        logger.exception("mercadopago webhook: not configured")
+        return {"received": True, "error": "mercadopago_not_configured"}
+    except Exception:
         logger.exception("mercadopago webhook failed")
-        raise HTTPException(status_code=502, detail=str(e)) from e
+        # MP retries on non-2xx; acknowledge receipt and log for manual replay
+        return {"received": True, "error": "processing_failed"}
 
 
 @router.get("/mercadopago-status")
@@ -140,6 +167,7 @@ async def mercadopago_status(test: bool = False):
         "public_key_configured": bool(mp.public_key()),
         "currency": os.getenv("MERCADOPAGO_CURRENCY", "PEN").upper(),
         "notification_url": mp.notification_url(),
+        "webhook_secret_configured": bool(mp.webhook_secret()),
         "env_keys": {
             k: bool(os.getenv(k, "").strip())
             for k in (
@@ -151,6 +179,7 @@ async def mercadopago_status(test: bool = False):
                 "MERCADOPAGO_PUBLIC_KEY",
                 "MERCADOPAGO_SANDBOX",
                 "MERCADOPAGO_WEBHOOK_URL",
+                "MERCADOPAGO_WEBHOOK_SECRET",
                 "RAILWAY_PUBLIC_DOMAIN",
             )
         },
