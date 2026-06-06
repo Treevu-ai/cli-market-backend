@@ -180,6 +180,9 @@ async def mercadopago_status(test: bool = False):
                 "MERCADOPAGO_SANDBOX",
                 "MERCADOPAGO_WEBHOOK_URL",
                 "MERCADOPAGO_WEBHOOK_SECRET",
+                "MERCADOPAGO_WEBHOOK_TOKEN",
+                "MERCADOPAGO_SECRET_SIGNATURE",
+                "MP_WEBHOOK_SECRET",
                 "RAILWAY_PUBLIC_DOMAIN",
             )
         },
