@@ -24,9 +24,11 @@ RUN set -eux; \
       echo "Railway: add GITHUB_TOKEN to the collector service with build-time access enabled." >&2; \
       exit 1; \
     fi; \
+    git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
     sed "s|git+https://github.com/|git+https://x-access-token:${GITHUB_TOKEN}@github.com/|g" requirements.txt > /tmp/requirements.build.txt; \
     pip install --no-cache-dir -r /tmp/requirements.build.txt; \
     rm -f /tmp/requirements.build.txt; \
+    git config --global --remove-section url; \
     playwright install chromium
 
 COPY collect_prices.py ./
