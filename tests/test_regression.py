@@ -416,3 +416,17 @@ def test_dashboard_dispersion_groups_by_currency(isolated_db):
     assert data["analytics_meta"]["dispersion_grouping"] == "line+currency+subcategory"
     assert not any(d.get("subcategory") in (None, "") and d["status"] == "crit"
                    for d in data["dispersion"] if d["line_key"] == "supermercados")
+
+
+def test_queries_for_store_override():
+    from collect_prices import queries_for_store, build_query_list
+
+    global_q = build_query_list(db=None, cycle=0)
+    electro_ar = [q for q, _ in queries_for_store("electrolux_ar", global_q)]
+    assert electro_ar[0] == "lavarropas"
+    assert ("moto g", "electro") not in queries_for_store("electrolux_ar", global_q)
+
+    electro_fr = [q for q, _ in queries_for_store("whirlpool_fr", global_q)]
+    assert "lave-linge" in electro_fr
+
+    assert queries_for_store("motorola_ar", global_q) == global_q

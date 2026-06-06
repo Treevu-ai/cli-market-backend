@@ -85,6 +85,50 @@ CURRENCY_LINE_MAX = {
 STORE_EXTRA_DELAY = {
     "globo_br": 2.0,
 }
+# Appliance-brand stores miss the global electro rotation (Motorola-first).
+# Stable per-store queries keep them contributing every batch cycle.
+STORE_QUERY_OVERRIDES: dict[str, list[tuple[str, str]]] = {
+    "electrolux_ar": [
+        ("lavarropas", "electro"), ("heladera", "electro"), ("microondas", "electro"),
+        ("refrigerador", "electro"), ("horno", "electro"), ("aspiradora", "electro"),
+        ("cocina", "electro"), ("lavadora", "electro"), ("secarropas", "electro"),
+        ("freezer", "electro"), ("cafetera", "electro"), ("licuadora", "electro"),
+    ],
+    "whirlpool_ar": [
+        ("lavarropas", "electro"), ("heladera", "electro"), ("microondas", "electro"),
+        ("refrigerador", "electro"), ("horno", "electro"), ("aspiradora", "electro"),
+        ("cocina", "electro"), ("lavadora", "electro"), ("secarropas", "electro"),
+        ("freezer", "electro"), ("lavaplatos", "electro"), ("purificador", "electro"),
+    ],
+    "electrolux_cl": [
+        ("microondas", "electro"), ("refrigerador", "electro"), ("lavadora", "electro"),
+        ("aspiradora", "electro"), ("horno", "electro"), ("heladera", "electro"),
+        ("freezer", "electro"), ("cocina", "electro"), ("lavarropas", "electro"),
+        ("plancha", "electro"), ("tostadora", "electro"), ("batidora", "electro"),
+    ],
+    "whirlpool_fr": [
+        ("lave-linge", "electro"), ("réfrigérateur", "electro"), ("four", "electro"),
+        ("aspirateur", "electro"), ("micro-ondes", "electro"), ("lave vaisselle", "electro"),
+        ("sèche-linge", "electro"), ("congélateur", "electro"), ("cafetière", "electro"),
+        ("mixeur", "electro"), ("bouilloire", "electro"), ("cuisinière", "electro"),
+    ],
+    "oster_br": [
+        ("liquidificador", "electro"), ("batedeira", "electro"), ("cafeteira", "electro"),
+        ("torradeira", "electro"), ("aspirador", "electro"), ("geladeira", "electro"),
+        ("microondas", "electro"), ("panela", "electro"), ("mixer", "electro"),
+        ("sanduicheira", "electro"), ("chaleira", "electro"), ("fogão", "electro"),
+    ],
+}
+
+
+def queries_for_store(store: str, global_queries: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    overrides = STORE_QUERY_OVERRIDES.get(store)
+    if overrides:
+        if MAX_QUERIES_PER_LINE > 0:
+            return overrides[:MAX_QUERIES_PER_LINE]
+        return overrides
+    return global_queries
+
 
 
 def max_allowed_price(store: str, line: str) -> float:
@@ -665,6 +709,7 @@ async def collect_one_pg(pool, store, queries):
     if not cb.ok(store):
         logger.warning("circuit open — skipping %s", store)
         return 0
+    queries = queries_for_store(store, queries)
     line = _store_line(store)
     queries_for_line = sum(1 for _q, lf in queries if not lf or lf == line)
     if queries_for_line == 0:
@@ -768,6 +813,7 @@ async def collect_one_sqlite(db, store, queries):
     """Collect for one store, reusing a single SQLite connection across
     all inserts (orders of magnitude cheaper than open-per-row, and avoids
     `database is locked` storms under PARALLEL workers)."""
+    queries = queries_for_store(store, queries)
     line = STORES[store].get("line",""); collected=0; attempted=0; query_ok=0
     for q, lf in queries:
         if lf and line!=lf: continue
