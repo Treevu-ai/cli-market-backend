@@ -149,6 +149,29 @@ async def admin_collect(
     }
 
 
+@router.post("/admin/collect-catalog")
+async def admin_collect_catalog(
+    store: str = Query(..., description="Store key, e.g. nunaorganica_pe"),
+    authorization: str | None = Header(None),
+):
+    """Force full catalog upsert for one WooCommerce/VTEX store (bypasses 60-min interval)."""
+    require_admin(authorization)
+    from collect_prices import force_catalog_stores
+    from market_core import STORES
+
+    if store not in STORES:
+        return {"error": f"unknown store: {store}"}
+    t0 = time.monotonic()
+    result = await force_catalog_stores([store])
+    return {
+        "status": "ok",
+        "store": store,
+        "elapsed_s": round(time.monotonic() - t0, 1),
+        "prices_collected": result["prices_collected"],
+        "per_store": result["stores"],
+    }
+
+
 @router.post("/v1/admin/scan-stores")
 async def admin_scan_stores(
     body: dict = Body(default_factory=dict),

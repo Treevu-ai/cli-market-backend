@@ -55,6 +55,7 @@ LINE_MAX_PRICE = {
     "moda": 5_000,
     "hogar": 20_000,
     "departamentales": 10_000,
+    "automotriz": 50_000,
 }
 
 # Nominal caps differ by currency (ARS/CLP/COP use much larger face values).
@@ -213,6 +214,14 @@ SEED_QUERIES = [
     ("mueble","departamentales"),("colchon","departamentales"),
     ("electrodomestico","departamentales"),("bicicleta","departamentales"),
     ("notebook","departamentales"),("auriculares","departamentales"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🚗 Automotriz (WooCommerce: Xray Chipped PE)
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("ecu","automotriz"),("chip","automotriz"),("reprogramacion","automotriz"),
+    ("diagnostico","automotriz"),("remap","automotriz"),("stage","automotriz"),
+    ("performance","automotriz"),("tuning","automotriz"),("obd","automotriz"),
+    ("centralita","automotriz"),("mapa","automotriz"),("potencia","automotriz"),
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -616,12 +625,12 @@ async def collect_full_catalog_pg(pool, store: str) -> int:
             await asyncio.sleep(0.05)
     return collected
 
-async def run_full_catalog_pg(pool, stores: list[str]) -> int:
+async def run_full_catalog_pg(pool, stores: list[str], *, force: bool = False) -> int:
     global _last_catalog_pull
     from store_credentials import resolve_store_config
 
     now = time.monotonic()
-    if now - _last_catalog_pull < CATALOG_INTERVAL_MINS * 60:
+    if not force and now - _last_catalog_pull < CATALOG_INTERVAL_MINS * 60:
         return 0
     _last_catalog_pull = now
     total = 0
@@ -633,6 +642,23 @@ async def run_full_catalog_pg(pool, stores: list[str]) -> int:
         total += n
     return total
 
+
+
+async def force_catalog_stores(stores: list[str]) -> dict:
+    """Bypass catalog interval and upsert full catalog for given stores."""
+    if not USE_PG:
+        raise RuntimeError("force_catalog_stores requires PostgreSQL (DATABASE_URL)")
+    pool = await get_pool()
+    await init_schema()
+    total = 0
+    per_store: dict[str, int] = {}
+    for store in stores:
+        n = await collect_full_catalog_pg(pool, store)
+        per_store[store] = n
+        total += n
+        print(f"    📦 {store}: {n:,} products (forced catalog)")
+    return {"stores": per_store, "prices_collected": total}
+
 # ── Collector core ──────────────────────────────────────────────────────────
 
 async def collect_one_pg(pool, store, queries):
@@ -640,6 +666,10 @@ async def collect_one_pg(pool, store, queries):
         logger.warning("circuit open — skipping %s", store)
         return 0
     line = _store_line(store)
+    queries_for_line = sum(1 for _q, lf in queries if not lf or lf == line)
+    if queries_for_line == 0:
+        logger.info("store %s: no seed queries for line=%s — skipping", store, line)
+        return 0
     collected = 0
     query_ok = 0
     query_fail = 0
@@ -885,6 +915,8 @@ async def main():
     ap.add_argument("--status", action="store_true"); ap.add_argument("--report", action="store_true")
     ap.add_argument("--stores", type=int, default=0); ap.add_argument("--queries", type=int, default=0)
     ap.add_argument("--parallel", type=int, default=50)
+    ap.add_argument("--catalog-store", action="append", default=[], metavar="STORE",
+                    help="Force full catalog pull for store(s); bypasses 60-min interval")
     args = ap.parse_args()
     global PARALLEL; PARALLEL = args.parallel
     ensure_db_initialized()
@@ -893,6 +925,16 @@ async def main():
     # could silently flip to SQLite if Postgres had a transient init error.
     if args.status: do_status(); return
     if args.report: do_report(); return
+    if args.catalog_store:
+        if not USE_PG:
+            print("✗ --catalog-store requires PostgreSQL (DATABASE_URL)")
+            return
+        r = await force_catalog_stores(args.catalog_store)
+        print(f"  ✓ Forced catalog: {r['prices_collected']:,} prices across {len(r['stores'])} store(s)")
+        for sk, n in r["stores"].items():
+            print(f"    {sk}: {n:,}")
+        do_status()
+        return
     stores = get_default_stores()
     stores = stores[:args.stores] if args.stores else stores
     label = "PostgreSQL" if USE_PG else "SQLite"
