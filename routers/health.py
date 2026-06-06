@@ -174,6 +174,7 @@ def health_collector():
         return {"status": "unknown", "message": "No collector runs yet", "runs_total": 0}
 
     finished = last["finished_at"]
+    in_progress = finished is None
     if finished:
         status, age_h = derive_collector_status(
             finished_at=finished,
@@ -185,12 +186,13 @@ def health_collector():
 
     return {
         "status": status,
+        "in_progress": in_progress,
         "last_run": last["started_at"],
         "last_finished": finished,
         "age_hours": round(age_h, 1) if age_h is not None else None,
         "stores_attempted": last["stores_attempted"],
-        "stores_succeeded": last["stores_succeeded"],
-        "prices_collected": last["prices_collected"],
+        "stores_succeeded": last["stores_succeeded"] if not in_progress else None,
+        "prices_collected": last["prices_collected"] if not in_progress else None,
         "stores_active": active_stores or 0,
         "stores_total": len(STORES),
         "runs_total": total_runs,
