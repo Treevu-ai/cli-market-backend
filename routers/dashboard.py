@@ -23,7 +23,8 @@ from dashboard_glossary import (
 )
 from dashboard_quality import build_quality_funnel, count_flagged_discounts
 from data_v1_service import count_flagged_outliers
-from dashboard_renderer import render_dashboard_html
+from dashboard_render import render_dashboard_html
+from dashboard_semantic import apply_semantic_moat_blocks
 from dashboard_view_model import build_dashboard_view_model
 from server_deps import require_admin, require_api_key, require_user
 
@@ -74,6 +75,11 @@ def _build_moat_guide(
     catalog_stores: int,
     marketing_gate_pass: bool,
     stale_stores: list[str],
+    snapshots_linked: int = 0,
+    golden_records_distinct: int = 0,
+    golden_records_registry: int = 0,
+    unlinked_snapshots: int = 0,
+    linkage_pct: float = 0.0,
 ) -> dict:
     """Human-readable layers so agents and humans share one mental model."""
     last_ts = str(last_collected_at)[:19] if last_collected_at else None
@@ -107,8 +113,39 @@ def _build_moat_guide(
                 "note": "Stock de precios reales ya leídos de las webs de las tiendas. Sigue disponible aunque el collector esté en pausa.",
             },
             {
+                "id": "semantic",
+                "title": "2 · Semántica (Golden Records)",
+                "question": "¿Cuántos precios ya tienen UPID canónico?",
+                "metrics": {
+                    "snapshots_linked": snapshots_linked,
+                    "golden_records_distinct": golden_records_distinct,
+                    "golden_records_registry": golden_records_registry,
+                    "unlinked_snapshots": unlinked_snapshots,
+                    "linkage_pct": linkage_pct,
+                },
+                "metric_help": {
+                    "snapshots_linked": {
+                        "label": "Snapshots vinculados",
+                        "description": "Filas en price_snapshots con canonical_product_id prod_*.",
+                    },
+                    "golden_records_distinct": {
+                        "label": "Golden Records (DB)",
+                        "description": "Productos canónicos distintos referenciados desde snapshots.",
+                    },
+                    "golden_records_registry": {
+                        "label": "Registry (index)",
+                        "description": "Tamaño del store persistente cli-market-index.",
+                    },
+                    "linkage_pct": {
+                        "label": "% vinculación",
+                        "description": "snapshots_linked / total_indexed × 100.",
+                    },
+                },
+                "note": "Crece con cada ciclo del collector (certify_round) y con ops/backfill_index.py.",
+            },
+            {
                 "id": "freshness",
-                "title": "2 · Frescura",
+                "title": "3 · Frescura",
                 "question": "¿Puedo confiar en el precio de hoy?",
                 "metrics": {
                     "snapshots_24h": snapshots_24h,
@@ -123,7 +160,7 @@ def _build_moat_guide(
             },
             {
                 "id": "coverage",
-                "title": "3 · Cobertura",
+                "title": "4 · Cobertura",
                 "question": "¿Qué tan completo está el catálogo activo?",
                 "metrics": {
                     "stores_active_catalog": catalog_stores,
@@ -137,7 +174,7 @@ def _build_moat_guide(
             },
             {
                 "id": "agents",
-                "title": "4 · Para agentes",
+                "title": "5 · Para agentes",
                 "question": "¿Qué puedo hacer con esto?",
                 "surfaces": [
                     {"cmd": "market compare <producto>", "use": "Buscar el precio más bajo del mismo producto en varias tiendas"},
@@ -148,7 +185,7 @@ def _build_moat_guide(
             },
             {
                 "id": "ops",
-                "title": "5 · Collector (ops)",
+                "title": "6 · Collector (ops)",
                 "question": "¿El pipeline de ingestión está sano?",
                 "metrics": {
                     "collector_status": collector_status,
@@ -254,6 +291,45 @@ def _dashboard_data():
     ).fetchone()["n"]
 
     total_runs = db.execute("SELECT COUNT(*) as n FROM collector_runs").fetchone()["n"]
+
+    try:
+        from price_snapshots_schema import ensure_canonical_product_id_column
+
+        ensure_canonical_product_id_column(db)
+        snapshots_linked = db.execute(
+            """
+            SELECT COUNT(*) as n FROM price_snapshots
+            WHERE price > 0 AND canonical_product_id IS NOT NULL AND canonical_product_id != ''
+            """
+        ).fetchone()["n"]
+        golden_records_distinct = db.execute(
+            """
+            SELECT COUNT(DISTINCT canonical_product_id) as n FROM price_snapshots
+            WHERE canonical_product_id IS NOT NULL AND canonical_product_id != ''
+            """
+        ).fetchone()["n"]
+        unlinked_snapshots = db.execute(
+            """
+            SELECT COUNT(*) as n FROM price_snapshots
+            WHERE price > 0
+              AND (canonical_product_id IS NULL OR canonical_product_id = '')
+            """
+        ).fetchone()["n"]
+    except Exception:
+        snapshots_linked = 0
+        golden_records_distinct = 0
+        unlinked_snapshots = total_indexed
+
+    try:
+        from index_gate import registry_size
+
+        golden_records_registry = registry_size()
+    except Exception:
+        golden_records_registry = golden_records_distinct
+
+    linkage_pct = (
+        round(snapshots_linked / total_indexed * 100, 1) if total_indexed > 0 else 0.0
+    )
 
     # ── By line ──────────────────────────────────────────────────────────────
     by_line = db.execute(
@@ -794,6 +870,11 @@ def _dashboard_data():
         catalog_stores=len(get_default_stores()),
         marketing_gate_pass=coverage_7d_pct >= 80,
         stale_stores=moat_stale,
+        snapshots_linked=snapshots_linked,
+        golden_records_distinct=golden_records_distinct,
+        golden_records_registry=golden_records_registry,
+        unlinked_snapshots=unlinked_snapshots,
+        linkage_pct=linkage_pct,
     )
 
     result = {
@@ -820,6 +901,11 @@ def _dashboard_data():
             "stores_24h": stores_24h,
             "last_collected_at": str(last_collected_at) if last_collected_at else None,
             "moat_age_hours": round(moat_age_h, 1) if moat_age_h is not None else None,
+            "snapshots_linked": snapshots_linked,
+            "golden_records_distinct": golden_records_distinct,
+            "golden_records_registry": golden_records_registry,
+            "unlinked_snapshots": unlinked_snapshots,
+            "linkage_pct": linkage_pct,
         },
         "moat_summary": {
             "purpose": "Verified cross-retailer prices for agent compare, basket, and inflation signals.",
@@ -839,6 +925,11 @@ def _dashboard_data():
             "marketing_gate_pct": 80,
             "marketing_gate_pass": coverage_7d_pct >= 80,
             "stale_stores": moat_stale,
+            "snapshots_linked": snapshots_linked,
+            "golden_records_distinct": golden_records_distinct,
+            "golden_records_registry": golden_records_registry,
+            "unlinked_snapshots": unlinked_snapshots,
+            "linkage_pct": linkage_pct,
             "health_breakdown": health_breakdown,
             "agent_surfaces": [
                 "market compare", "market basket", "market indicators", "market scores",
@@ -905,7 +996,9 @@ def _dashboard_data():
             "docs": "docs/DATA-MOAT-INDICATORS.md",
         },
     }
-    result["dashboard_view"] = build_dashboard_view_model(result)
+    result["dashboard_view"] = apply_semantic_moat_blocks(
+        build_dashboard_view_model(result), result
+    )
     return result
 
 

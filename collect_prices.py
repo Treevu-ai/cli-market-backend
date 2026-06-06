@@ -42,6 +42,11 @@ QUERY_TIMEOUT = 15.0
 DAEMON_INTERVAL = int(os.getenv("COLLECT_INTERVAL_HOURS", "4"))
 MAX_QUERIES_PER_LINE = int(os.getenv("COLLECT_MAX_QUERIES_PER_LINE", "12"))
 COLLECTOR_ADVISORY_LOCK = int(os.getenv("COLLECTOR_ADVISORY_LOCK", "84957231"))
+INDEX_COLLECT_ENABLED = os.getenv("INDEX_COLLECT_ENABLED", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+)
 
 LINE_MAX_PRICE = {
     "supermercados": 10_000,
@@ -422,6 +427,12 @@ if USE_PG:
         # Single source of truth: market_core.init_db() owns the DDL.
         # We call it synchronously here — it's idempotent and only runs once.
         ensure_db_initialized()
+        try:
+            from price_snapshots_schema import ensure_canonical_product_id_column
+
+            ensure_canonical_product_id_column()
+        except Exception as e:
+            logger.warning("canonical_product_id migration skipped: %s", e)
 
     async def pg_insert(conn, prod):
         from price_confidence import compute_snapshot_confidence
@@ -476,6 +487,12 @@ if USE_PG:
 def get_db_unified():
     """Return a unified DB handle (_DB) — works with both PG and SQLite."""
     ensure_db_initialized()
+    try:
+        from price_snapshots_schema import ensure_canonical_product_id_column
+
+        ensure_canonical_product_id_column()
+    except Exception as e:
+        logger.warning("canonical_product_id migration skipped: %s", e)
     return get_db()
 
 def sq_insert(db, prod):
@@ -814,6 +831,30 @@ def do_status():
     top = db.execute("SELECT store_name, COUNT(*) n FROM price_snapshots GROUP BY store_name ORDER BY n DESC LIMIT 5").fetchall()
     if top: print("  Top:"); [print(f"    {r['store_name'][:25]:<25} {r['n']:>6}") for r in top]
     db.close()
+
+def _run_index_cycle(prices_collected: int) -> None:
+    """Feed recent price_snapshots into the semantic index after a collection run."""
+    if not INDEX_COLLECT_ENABLED or prices_collected <= 0:
+        return
+    try:
+        from index_gate import certify_round
+
+        stats = certify_round(prices_collected)
+        resolved = stats.get("resolved", 0)
+        registry = stats.get("registry_size", 0)
+        linked = stats.get("linked", 0)
+        if resolved:
+            print(
+                f"  🧠 Index: {resolved} snapshots resolved, {linked} linked → "
+                f"{registry:,} Golden Records "
+                f"({stats.get('exact', 0)} exact, {stats.get('auto', 0)} new)"
+            )
+        else:
+            logger.info("Index cycle: 0 snapshots resolved (registry=%d)", registry)
+    except Exception as exc:
+        print(f"  ⚠ Index cycle skipped: {exc}")
+        logger.warning("Index cycle failed: %s", exc)
+
 
 def do_report():
     """Print latest prices by line — works with both PG and SQLite via unified DB."""
