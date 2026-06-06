@@ -12,8 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # cli-market-core and cli-market-index are private GitHub repos (git+https in
 # requirements.txt). Pass a fine-grained or classic PAT with repo read scope.
-# Railway: set GITHUB_TOKEN on the collector service and enable "Available at
-# Build Time" so Railway forwards it as this Docker build-arg.
+#
+# Railway: create GITHUB_TOKEN on the collector service and enable
+# "Available at Build Time". Railway forwards matching ARG names automatically.
 ARG GITHUB_TOKEN
 
 COPY requirements.txt .
@@ -23,9 +24,9 @@ RUN set -eux; \
       echo "Railway: add GITHUB_TOKEN to the collector service with build-time access enabled." >&2; \
       exit 1; \
     fi; \
-    git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
-    pip install --no-cache-dir -r requirements.txt; \
-    git config --global --remove-section url; \
+    sed "s|git+https://github.com/|git+https://x-access-token:${GITHUB_TOKEN}@github.com/|g" requirements.txt > /tmp/requirements.build.txt; \
+    pip install --no-cache-dir -r /tmp/requirements.build.txt; \
+    rm -f /tmp/requirements.build.txt; \
     playwright install chromium
 
 COPY collect_prices.py ./
