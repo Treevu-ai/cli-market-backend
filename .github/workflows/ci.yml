@@ -16,16 +16,27 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/checkout@v6
+        with:
+          repository: Treevu-ai/cli-market-core
+          ref: 3188a32
+          path: .deps/cli-market-core
+
+      - uses: actions/checkout@v6
+        with:
+          repository: Treevu-ai/cli-market-index
+          ref: 2bfa6d210fc429e1c9c7780d7df9158eb0713a66
+          path: .deps/cli-market-index
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Configure git for private dependencies
-        run: |
-          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -e ".deps/cli-market-core"
+          pip install -e ".deps/cli-market-index[postgres]"
+          pip install playwright python-dotenv pytest pytest-asyncio
 
       - name: Run tests
         run: pytest tests/ -q -m "not integration"
