@@ -7,7 +7,7 @@ import statistics
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from market_core import get_db
+from market_core import USE_PG, get_db
 
 FUNNEL_EVENTS = frozenset(
     {
@@ -21,30 +21,38 @@ FUNNEL_EVENTS = frozenset(
     }
 )
 
+_FUNNEL_DDL_PG = """
+CREATE TABLE IF NOT EXISTS funnel_events (
+    id SERIAL PRIMARY KEY,
+    event TEXT NOT NULL,
+    username TEXT,
+    session_id TEXT,
+    meta TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+"""
+
+_FUNNEL_DDL_SQLITE = """
+CREATE TABLE IF NOT EXISTS funnel_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event TEXT NOT NULL,
+    username TEXT,
+    session_id TEXT,
+    meta TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
 
 def ensure_funnel_schema() -> None:
     db = get_db()
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS funnel_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event TEXT NOT NULL,
-            username TEXT,
-            session_id TEXT,
-            meta TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-        """
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_funnel_event ON funnel_events(event)"
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_funnel_user ON funnel_events(username)"
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_funnel_created ON funnel_events(created_at)"
-    )
+    db.execute(_FUNNEL_DDL_PG if USE_PG else _FUNNEL_DDL_SQLITE)
+    for idx_sql in (
+        "CREATE INDEX IF NOT EXISTS idx_funnel_event ON funnel_events(event)",
+        "CREATE INDEX IF NOT EXISTS idx_funnel_user ON funnel_events(username)",
+        "CREATE INDEX IF NOT EXISTS idx_funnel_created ON funnel_events(created_at)",
+    ):
+        db.execute(idx_sql)
     db.commit()
     db.close()
 
@@ -89,7 +97,13 @@ def record_funnel_event(
     return {"ok": True, "event": event, "username": user}
 
 
-def _parse_ts(value: str) -> datetime | None:
+def _parse_ts(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not isinstance(value, str):
+        value = str(value)
     if not value:
         return None
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
