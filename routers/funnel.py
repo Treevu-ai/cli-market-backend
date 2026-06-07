@@ -75,11 +75,13 @@ def analytics_pypi_public():
         return {
             "ok": False,
             "project": data.get("project"),
+            "pepy_project": data.get("pepy_project"),
             "configured": data.get("configured", False),
         }
     return {
         "ok": True,
         "project": data["project"],
+        "pepy_project": data.get("pepy_project"),
         "total_downloads": data.get("total_downloads"),
         "downloads_last_24h": data.get("downloads_last_24h"),
         "downloads_last_7d": data.get("downloads_last_7d"),

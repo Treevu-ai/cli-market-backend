@@ -21,7 +21,12 @@ def _api_key() -> str:
 
 
 def project_name() -> str:
-    return (os.getenv("PEPY_PROJECT") or "cli-market-world").strip().lower()
+    return (os.getenv("PEPY_PROJECT") or "cli-market").strip().lower()
+
+
+def pypi_display_project() -> str:
+    """PyPI package name shown in API responses (may differ from Pepy project key)."""
+    return (os.getenv("PYPI_PACKAGE_NAME") or "cli-market-world").strip().lower()
 
 
 def _fetch_json(path: str) -> dict[str, Any] | list[Any] | None:
@@ -87,8 +92,10 @@ def pepy_summary(*, force: bool = False) -> dict[str, Any]:
         return dict(_CACHE)
 
     project = project_name()
+    display = pypi_display_project()
     out: dict[str, Any] = {
-        "project": project,
+        "project": display,
+        "pepy_project": project,
         "configured": bool(_api_key()),
         "source": "pepy.tech",
         "fetched_at": datetime.now(timezone.utc).isoformat(),
@@ -99,6 +106,10 @@ def pepy_summary(*, force: bool = False) -> dict[str, Any]:
         return out
 
     base = _fetch_json(f"/api/v2/projects/{project}?includeMetadata=true")
+    if not isinstance(base, dict) and project != "cli-market":
+        project = "cli-market"
+        out["pepy_project"] = project
+        base = _fetch_json(f"/api/v2/projects/{project}?includeMetadata=true")
     if not isinstance(base, dict):
         out["ok"] = False
         out["message"] = "pepy fetch failed"
