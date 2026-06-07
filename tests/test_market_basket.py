@@ -8,7 +8,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from market_basket import _canasta_name_sql, build_canasta_snapshot
+from market_core.market_basket import _canasta_name_sql, build_canasta_snapshot
 from market_spread import CANASTA_SQL_LIKE, matches_canasta_item
 
 
