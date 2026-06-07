@@ -7,8 +7,19 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev git tesseract-ocr tesseract-ocr-spa && rm -rf /var/lib/apt/lists/*
 
+# Private cli-market-index clone during pip install.
+# Railway → API service → Variables: GITHUB_TOKEN (PAT with repo scope on cli-market-index).
+ARG GITHUB_TOKEN
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN set -eux; \
+    if [ -z "${GITHUB_TOKEN}" ]; then \
+      echo "error: GITHUB_TOKEN build arg required for private cli-market-index (git+https)" >&2; \
+      exit 1; \
+    fi; \
+    git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
+    pip install --no-cache-dir -r requirements.txt; \
+    rm -f /root/.gitconfig
 
 # Force layer rebuild on deploy (2026-06-01-refresh-v2)
 ARG CACHE_BUST=2026-06-06-shims-fix

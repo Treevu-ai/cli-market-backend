@@ -4,6 +4,9 @@
 #   Settings → Config-as-code → Config file path → /railway.collector.toml
 #
 # Add PostgreSQL from Railway dashboard → auto-injects DATABASE_URL
+#
+# Required build variable (secret) on this service:
+#   GITHUB_TOKEN — GitHub PAT with repo read access to Treevu-ai/cli-market-index
 
 [build]
 builder = "DOCKERFILE"
