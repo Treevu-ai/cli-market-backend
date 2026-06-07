@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Treevu-ai/cli-market-core
-          ref: cb9b4c90cdd6765c89634803b3e39b680ab66e94
+          ref: 6aedb989abb093b3dca644fcc9d6cb01267b69c3
           path: .deps/cli-market-core
           token: ${{ secrets.GH_PAT }}
 
