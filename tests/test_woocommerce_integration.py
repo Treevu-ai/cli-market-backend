@@ -15,6 +15,7 @@ for p in (REPO_ROOT, CORE_ROOT):
         sys.path.insert(0, str(p))
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_xray_pe_store_api_search():
     from market_connectors.woocommerce import WooCommerceConnector
