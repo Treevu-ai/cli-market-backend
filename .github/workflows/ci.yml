@@ -29,7 +29,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install "cli-market-core @ git+https://github.com/Treevu-ai/cli-market-core@2d98c0ebc7b17de5d976f76d966997dcb2201dab"
+          pip install "cli-market-core>=1.9.5"
           pip install -e ".deps/cli-market-index[postgres]"
           pip install playwright python-dotenv pytest pytest-asyncio
 

@@ -3,8 +3,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# cli-market-core and cli-market-index are public git dependencies — pinned by
-# commit in requirements.txt (git required for the git+https install).
+# cli-market-core from PyPI; cli-market-index from private git (requirements.txt).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev git tesseract-ocr tesseract-ocr-spa && rm -rf /var/lib/apt/lists/*
 
