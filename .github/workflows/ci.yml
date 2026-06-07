@@ -21,12 +21,14 @@ jobs:
           repository: Treevu-ai/cli-market-core
           ref: 3188a32
           path: .deps/cli-market-core
+          token: ${{ secrets.GH_PAT }}
 
       - uses: actions/checkout@v6
         with:
           repository: Treevu-ai/cli-market-index
           ref: 2bfa6d210fc429e1c9c7780d7df9158eb0713a66
           path: .deps/cli-market-index
+          token: ${{ secrets.GH_PAT }}
 
       - uses: actions/setup-python@v6
         with:
