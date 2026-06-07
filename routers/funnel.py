@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException
 
 from market_funnel import FUNNEL_EVENTS, funnel_summary, record_funnel_event
+from market_pepy import pepy_summary
 from server_deps import auth_user, check_rate_limit, require_admin
 
 router = APIRouter(tags=["funnel"])
@@ -64,3 +65,34 @@ def analytics_funnel_public(days: int = 30):
         "funnel_steps": data["funnel_steps"],
         "excluded_test_events": data["excluded_test_events"],
     }
+
+
+@router.get("/analytics/pypi")
+def analytics_pypi_public():
+    """Public PyPI install stats via Pepy (cached server-side)."""
+    data = pepy_summary()
+    if not data.get("ok"):
+        return {
+            "ok": False,
+            "project": data.get("project"),
+            "configured": data.get("configured", False),
+        }
+    return {
+        "ok": True,
+        "project": data["project"],
+        "total_downloads": data.get("total_downloads"),
+        "downloads_last_24h": data.get("downloads_last_24h"),
+        "downloads_last_7d": data.get("downloads_last_7d"),
+        "downloads_last_30d": data.get("downloads_last_30d"),
+        "downloads_last_30d_no_ci": data.get("downloads_last_30d_no_ci"),
+        "top_version_30d": data.get("top_version_30d"),
+        "latest_version": data.get("latest_version"),
+        "fetched_at": data.get("fetched_at"),
+    }
+
+
+@router.get("/dashboard/pypi")
+def dashboard_pypi(authorization: str | None = Header(None)):
+    """Admin Pepy stats (full payload)."""
+    require_admin(authorization)
+    return pepy_summary()
