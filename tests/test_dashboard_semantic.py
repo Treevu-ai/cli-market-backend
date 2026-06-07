@@ -11,22 +11,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 
-@pytest.fixture
-def isolated_db(monkeypatch, tmp_path):
-    import market_core
-
-    data_dir = tmp_path / "market_data"
-    data_dir.mkdir()
-    db_file = data_dir / "market.db"
-    monkeypatch.setenv("MARKET_DATA_DIR", str(data_dir))
-    monkeypatch.setenv("DATABASE_URL", "")
-    monkeypatch.setattr(market_core, "DATA_DIR", data_dir)
-    monkeypatch.setattr(market_core, "DB_FILE", db_file)
-    monkeypatch.setattr(market_core, "USE_PG", False)
-    monkeypatch.setattr(market_core, "_db_initialized", False)
-    return market_core
-
-
 def test_dashboard_data_has_semantic_kpis(isolated_db):
     from fastapi.testclient import TestClient
     from market_server import app

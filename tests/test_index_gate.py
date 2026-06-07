@@ -58,22 +58,6 @@ def test_enrich_persists_across_restarts(index_env):
     assert second["index"]["confidence"] >= 0.75
 
 
-@pytest.fixture
-def isolated_db(monkeypatch, tmp_path):
-    import market_core
-
-    data_dir = tmp_path / "market_data"
-    data_dir.mkdir()
-    db_file = data_dir / "market.db"
-    monkeypatch.setenv("MARKET_DATA_DIR", str(data_dir))
-    monkeypatch.setenv("DATABASE_URL", "")
-    monkeypatch.setattr(market_core, "DATA_DIR", data_dir)
-    monkeypatch.setattr(market_core, "DB_FILE", db_file)
-    monkeypatch.setattr(market_core, "USE_PG", False)
-    monkeypatch.setattr(market_core, "_db_initialized", False)
-    return market_core
-
-
 def test_certify_round_indexes_recent_snapshots(index_env, isolated_db):
     market_core = isolated_db
     market_core.ensure_db_initialized()

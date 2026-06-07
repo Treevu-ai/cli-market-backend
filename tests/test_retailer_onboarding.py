@@ -21,11 +21,11 @@ def isolated_db(monkeypatch, tmp_path):
     db_file = data_dir / "market.db"
     monkeypatch.setenv("MARKET_DATA_DIR", str(data_dir))
     monkeypatch.setenv("DATABASE_URL", "")
-    for mod in (market_core, mc):
-        monkeypatch.setattr(mod, "DATA_DIR", data_dir)
-        monkeypatch.setattr(mod, "DB_FILE", db_file)
-        monkeypatch.setattr(mod, "USE_PG", False)
-    monkeypatch.setattr(mc, "_db_initialized", False)
+    for mod in (mc, market_core):
+        monkeypatch.setattr(mod, "DATA_DIR", data_dir, raising=False)
+        monkeypatch.setattr(mod, "DB_FILE", db_file, raising=False)
+        monkeypatch.setattr(mod, "USE_PG", False, raising=False)
+        monkeypatch.setattr(mod, "_db_initialized", False, raising=False)
     return market_core, data_dir
 
 

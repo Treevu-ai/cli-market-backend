@@ -28,15 +28,35 @@ def _mcp_search_roots() -> list[Path]:
 
 def _load_core_mcp():
     here = Path(__file__).resolve()
-    for root in _mcp_search_roots():
-        path = root / "market_mcp.py"
+
+    def _load_from_path(path: Path):
         if not path.is_file() or path.resolve() == here:
-            continue
+            return None
         spec = importlib.util.spec_from_file_location("_market_mcp_core", path)
         if spec and spec.loader:
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
             return mod
+        return None
+
+    for root in _mcp_search_roots():
+        mod = _load_from_path(root / "market_mcp.py")
+        if mod is not None:
+            return mod
+
+    # Editable pip installs expose modules via sys.path, not site-packages/market_mcp.py
+    for entry in sys.path:
+        if not entry:
+            continue
+        mod = _load_from_path(Path(entry) / "market_mcp.py")
+        if mod is not None:
+            return mod
+
+    deps = here.parent / ".deps" / "cli-market-core" / "market_mcp.py"
+    mod = _load_from_path(deps)
+    if mod is not None:
+        return mod
+
     raise ImportError("cli-market-core market_mcp not installed")
 
 
