@@ -11,9 +11,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # cli-market-core from PyPI; cli-market-index from private git (requirements.txt).
+# Railway → collector service → Variables: add GH_TOKEN (GitHub PAT, repo read on cli-market-index).
+ARG GH_TOKEN
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    playwright install chromium
+RUN set -eux; \
+    if [ -z "${GH_TOKEN}" ]; then \
+      echo "error: GH_TOKEN build arg required for private cli-market-index (git+https)" >&2; \
+      exit 1; \
+    fi; \
+    git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; \
+    pip install --no-cache-dir -r requirements.txt; \
+    playwright install chromium; \
+    rm -f /root/.gitconfig
 
 COPY collect_prices.py ./
 
