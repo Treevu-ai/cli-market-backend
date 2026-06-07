@@ -16,7 +16,8 @@ Endpoints:
   POST /checkout/paypal-webhook  PayPal IPN/webhooks
   GET  /checkout/rates      FX rates with PEN base (Wise; fallback if down)
   POST /billing/request-pro  Email payment link (manual Pro — default)
-  POST /billing/paypal      PayPal Subscription (optional automation)
+  POST /billing/paypal      PayPal Subscription (authenticated CLI)
+  POST /billing/paypal-subscribe  PayPal Subscription (landing — auto-activate)
   POST /billing/checkout    Stripe Checkout for Pro subscription
   GET  /paypal-status       PayPal config diagnostic
 """
@@ -47,7 +48,7 @@ from market_core import (
     db_get_cart,
 )
 from market_security import is_production_deploy, paypal_allow_unverified_webhooks
-from server_deps import check_rate_limit, require_api_key, require_checkout_access
+from server_deps import check_rate_limit, require_api_key, require_checkout_access, require_user
 
 logger = logging.getLogger(__name__)
 
@@ -529,29 +530,114 @@ def request_pro_subscription(body: dict, authorization: str | None = Header(None
         raise HTTPException(status_code=503, detail=f"billing unavailable: {e}") from e
 
 
+def _resolve_pro_username(
+    email: str,
+    *,
+    body_username: str = "",
+    auth_username: str = "",
+) -> str:
+    if auth_username:
+        return auth_username.strip()
+    if body_username.strip():
+        return body_username.strip()
+    recent = db_recent_subscription_request(email.strip().lower())
+    if recent and recent.get("username"):
+        return recent["username"]
+    local = email.split("@")[0].lower()
+    safe = re.sub(r"[^a-z0-9_-]", "", local)[:32]
+    return safe or f"user-{uuid.uuid4().hex[:8]}"
+
+
+async def _start_paypal_pro_subscription(username: str, email: str) -> dict:
+    from market_connectors.paypal_payments import create_subscription
+
+    result = await create_subscription(username=username)
+    if "approve_url" not in result:
+        return {"error": result.get("error", "PayPal error"), "details": result}
+    sub_id = result["subscription_id"]
+    approve = result["approve_url"]
+    db_save_billing_pending(sub_id, "paypal", username, "subscription")
+    db_create_subscription_request(username, email, approve)
+    return {
+        "ok": True,
+        "subscription_id": sub_id,
+        "approve_url": approve,
+        "plan": "Pro",
+        "amount": "$79/mo",
+        "username": username,
+        "auto_activate": True,
+    }
+
+
 @router.post("/billing/paypal")
 async def billing_paypal(authorization: str | None = Header(None)):
-    """PayPal Subscription for Pro plan ($79/mo)."""
+    """PayPal Subscription for Pro plan ($79/mo) — authenticated CLI path."""
     username = require_api_key(authorization)
     try:
-        from market_connectors.paypal_payments import create_subscription
+        from market_core import db_get_user_email
 
-        result = await create_subscription(username=username)
-        if "approve_url" in result:
-            db_save_billing_pending(result["subscription_id"], "paypal", username, "subscription")
-            return {
-                "subscription_id": result["subscription_id"],
-                "approve_url": result["approve_url"],
-                "plan": "Pro",
-                "amount": "$79/mo",
-                "username": username,
-            }
-        return {"error": result.get("error", "PayPal error"), "details": result}
+        email = db_get_user_email(username) or f"{username}@cli-market.dev"
+        out = await _start_paypal_pro_subscription(username, email)
+        if out.get("ok"):
+            out["message"] = (
+                "Pro se activa automáticamente al confirmar la suscripción en PayPal."
+            )
+            return out
+        raise HTTPException(status_code=502, detail=out.get("error", "PayPal error"))
     except ValueError as e:
         return {"error": "PayPal no configurado", "detail": str(e)}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("billing_paypal failed")
         return {"error": str(e)}
+
+
+@router.post("/billing/paypal-subscribe")
+async def billing_paypal_subscribe(body: dict, authorization: str | None = Header(None)):
+    """PayPal Subscription from landing — auto-activate via webhook."""
+    try:
+        check_rate_limit("billing-paypal-subscribe")
+        email = (body.get("email") or "").strip().lower()
+        lang = (body.get("lang") or "en").strip().lower()[:2]
+        if not email or not _EMAIL_RE.match(email):
+            raise HTTPException(status_code=400, detail="valid email is required")
+
+        auth_user = ""
+        if authorization:
+            try:
+                auth_user = require_user(authorization)
+            except HTTPException:
+                auth_user = ""
+
+        username = _resolve_pro_username(
+            email,
+            body_username=(body.get("username") or ""),
+            auth_username=auth_user,
+        )
+
+        out = await _start_paypal_pro_subscription(username, email)
+        if not out.get("ok"):
+            raise HTTPException(status_code=502, detail=out.get("error", "PayPal error"))
+
+        if lang == "es":
+            out["message"] = (
+                "Confirme la suscripción en PayPal; Pro se activa en segundos (webhook). "
+                "Luego: market whoami"
+            )
+        else:
+            out["message"] = (
+                "Confirm subscription in PayPal; Pro activates in seconds (webhook). "
+                "Then: market whoami"
+            )
+        return out
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=501, detail=f"PayPal not configured: {e}") from e
+    except Exception as e:
+        logger.exception("billing_paypal_subscribe failed")
+        raise HTTPException(status_code=503, detail=f"billing unavailable: {e}") from e
 
 
 @router.post("/billing/checkout")
