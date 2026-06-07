@@ -1,6 +1,6 @@
 # cli-market-backend
 
-[![CI](https://github.com/Treevu-ai/cli-market-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Treevu-ai/cli-market-backend/actions/workflows/ci.yml)
+> **Private repo** · Treevu-ai org — request access from maintainer.
 
 FastAPI backend powering the [CLI Market](https://cli-market.dev) production API — 68 retailers (VTEX · Shopify · Magento · WooCommerce), 46,000+ shelf prices, Mercado Pago + PayPal checkout.
 
