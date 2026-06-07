@@ -42,18 +42,19 @@ def ingest_event(body: dict, authorization: str | None = Header(None)):
 def dashboard_funnel(
     authorization: str | None = Header(None),
     days: int = 30,
+    include_test: bool = False,
 ):
     """Admin funnel dashboard: TTFV, TTC, drop-off."""
     require_admin(authorization)
     days = max(1, min(days, 90))
-    return funnel_summary(days=days)
+    return funnel_summary(days=days, include_test=include_test)
 
 
 @router.get("/analytics/funnel")
 def analytics_funnel_public(days: int = 30):
-    """Public aggregate funnel (no PII)."""
+    """Public aggregate funnel (no PII). Test/smoke/PAM traffic excluded."""
     days = max(1, min(days, 90))
-    data = funnel_summary(days=days)
+    data = funnel_summary(days=days, include_test=False)
     return {
         "window_days": data["window_days"],
         "events": data["events"],
@@ -61,4 +62,5 @@ def analytics_funnel_public(days: int = 30):
         "ttfv_median_minutes": data["ttfv_median_minutes"],
         "ttc_median_hours": data["ttc_median_hours"],
         "funnel_steps": data["funnel_steps"],
+        "excluded_test_events": data["excluded_test_events"],
     }

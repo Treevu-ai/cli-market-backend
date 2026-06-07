@@ -1,13 +1,19 @@
 """P3 funnel instrumentation + PAM tier 1.5 synthetic journey."""
 
 import sys
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi.testclient import TestClient
 from market_core import ensure_db_initialized
-from market_funnel import ensure_funnel_schema, funnel_summary, record_funnel_event
+from market_funnel import (
+    ensure_funnel_schema,
+    funnel_summary,
+    is_test_funnel_traffic,
+    record_funnel_event,
+)
 from market_server import app
 
 ensure_db_initialized()
@@ -37,6 +43,36 @@ def test_analytics_funnel_public():
     body = r.json()
     assert "funnel_steps" in body
     assert "ttfv_median_minutes" in body
+    assert "excluded_test_events" in body
+
+
+def test_is_test_funnel_traffic_patterns():
+    assert is_test_funnel_traffic("smoke+123", {"email": "smoke+123@cli-market.dev"})
+    assert is_test_funnel_traffic("pam-user", {"email": "pam+abc@cli-market.dev"})
+    assert is_test_funnel_traffic("test", {"email": "test@example.com"})
+    assert is_test_funnel_traffic("user-deadbeefcafe", None)
+    assert not is_test_funnel_traffic("acme-buyer", {"email": "buyer@acme.com"})
+
+
+def test_funnel_summary_excludes_test_traffic():
+    suffix = uuid.uuid4().hex[:8]
+    smoke_user = f"smoke+{suffix}"
+    real_user = f"buyer-{suffix}"
+    record_funnel_event(
+        "request_pro",
+        username=smoke_user,
+        meta={"email": f"{smoke_user}@cli-market.dev"},
+    )
+    record_funnel_event(
+        "request_pro",
+        username=real_user,
+        meta={"email": f"{real_user}@acme.com"},
+    )
+    filtered = funnel_summary(days=30, include_test=False)
+    raw = funnel_summary(days=30, include_test=True)
+    assert raw["events"]["request_pro"] - filtered["events"]["request_pro"] >= 1
+    assert filtered["excluded_test_events"] >= 1
+    assert raw["excluded_test_events"] == 0
 
 
 def test_pam_journey_synthetic():

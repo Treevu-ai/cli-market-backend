@@ -3,11 +3,28 @@
 from __future__ import annotations
 
 import json
+import re
 import statistics
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from market_core import USE_PG, get_db
+
+_TEST_EMAIL_DOMAINS = frozenset({"cli-market.dev", "example.com", "test.com"})
+_TEST_USERNAME_PREFIXES = (
+    "smoke+",
+    "pam+",
+    "smoke-test",
+    "pam-user",
+    "deploy-check",
+    "quick-check",
+    "now-check",
+    "final-check",
+    "slow-check",
+    "pro-smtp-test",
+    "smtp-debug",
+)
+_PAM_AUTO_USER = re.compile(r"^user-[a-f0-9]{12}$", re.IGNORECASE)
 
 FUNNEL_EVENTS = frozenset(
     {
@@ -15,8 +32,9 @@ FUNNEL_EVENTS = frozenset(
         "login",
         "register",
         "first_search",
-        "request_pro",
+        "starter_subscribe",
         "starter_request",
+        "request_pro",
         "activated",
     }
 )
@@ -42,6 +60,43 @@ CREATE TABLE IF NOT EXISTS funnel_events (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )
 """
+
+
+def _parse_meta(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def is_test_funnel_traffic(
+    username: str | None,
+    meta: dict[str, Any] | None = None,
+) -> bool:
+    """True for smoke/PAM/CI traffic and other internal test patterns."""
+    meta = meta or {}
+    if meta.get("source") == "test":
+        return True
+
+    email = (meta.get("email") or "").strip().lower()
+    if email:
+        local, _, domain = email.partition("@")
+        if domain in _TEST_EMAIL_DOMAINS:
+            return True
+        if local.startswith(("smoke+", "pam+")) or local in {"smoke-test", "deploy-check", "test"}:
+            return True
+
+    user = (username or "").strip().lower()
+    if not user:
+        return False
+    if user == "test" or user.startswith(_TEST_USERNAME_PREFIXES):
+        return True
+    return bool(_PAM_AUTO_USER.match(user))
 
 
 def ensure_funnel_schema() -> None:
@@ -73,13 +128,23 @@ def record_funnel_event(
     ensure_funnel_schema()
     user = (username or "").strip() or None
     sid = (session_id or "").strip() or None
+    payload = dict(meta or {})
+    if is_test_funnel_traffic(user, payload):
+        payload.setdefault("source", "test")
 
-    if dedupe and user:
+    if dedupe:
         db = get_db()
-        row = db.execute(
-            "SELECT id FROM funnel_events WHERE event=? AND username=? LIMIT 1",
-            (event, user),
-        ).fetchone()
+        row = None
+        if user:
+            row = db.execute(
+                "SELECT id FROM funnel_events WHERE event=? AND username=? LIMIT 1",
+                (event, user),
+            ).fetchone()
+        elif sid and event == "install":
+            row = db.execute(
+                "SELECT id FROM funnel_events WHERE event=? AND session_id=? LIMIT 1",
+                (event, sid),
+            ).fetchone()
         db.close()
         if row:
             return {"ok": True, "deduped": True, "event": event}
@@ -90,7 +155,7 @@ def record_funnel_event(
         INSERT INTO funnel_events (event, username, session_id, meta)
         VALUES (?, ?, ?, ?)
         """,
-        (event, user, sid, json.dumps(meta or {}, ensure_ascii=False)),
+        (event, user, sid, json.dumps(payload, ensure_ascii=False)),
     )
     db.commit()
     db.close()
@@ -123,23 +188,29 @@ def _median_minutes(pairs: list[float]) -> float | None:
     return round(statistics.median(pairs), 1)
 
 
-def funnel_summary(*, days: int = 30) -> dict[str, Any]:
+def funnel_summary(*, days: int = 30, include_test: bool = False) -> dict[str, Any]:
     ensure_funnel_schema()
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     db = get_db()
     rows = db.execute(
-        "SELECT event, username, created_at FROM funnel_events WHERE created_at >= ?",
+        "SELECT event, username, meta, created_at FROM funnel_events WHERE created_at >= ?",
         (since,),
     ).fetchall()
     db.close()
 
     events: dict[str, int] = {e: 0 for e in FUNNEL_EVENTS}
     by_user: dict[str, dict[str, datetime]] = {}
+    excluded_test_events = 0
 
     for row in rows:
+        meta = _parse_meta(row["meta"])
+        user = row["username"]
+        if not include_test and is_test_funnel_traffic(user, meta):
+            excluded_test_events += 1
+            continue
+
         ev = row["event"]
         events[ev] = events.get(ev, 0) + 1
-        user = row["username"]
         if not user:
             continue
         ts = _parse_ts(row["created_at"])
@@ -151,6 +222,7 @@ def funnel_summary(*, days: int = 30) -> dict[str, Any]:
         {u for u, evs in by_user.items() if "register" in evs}
     )
     search_users = {u for u, evs in by_user.items() if "first_search" in evs}
+    starter_sub_users = {u for u, evs in by_user.items() if "starter_subscribe" in evs}
     pro_users = {u for u, evs in by_user.items() if "request_pro" in evs}
     activated_users = {u for u, evs in by_user.items() if "activated" in evs}
 
@@ -173,10 +245,12 @@ def funnel_summary(*, days: int = 30) -> dict[str, Any]:
             return None
         return round(num / den, 3)
 
+    starter_sub_n = max(events.get("starter_subscribe", 0), len(starter_sub_users))
     steps = [
         ("install", events.get("install", 0)),
         ("register", max(register_n, events.get("register", 0))),
         ("first_search", len(search_users)),
+        ("starter_subscribe", starter_sub_n),
         ("request_pro", len(pro_users)),
         ("activated", len(activated_users)),
     ]
@@ -195,17 +269,21 @@ def funnel_summary(*, days: int = 30) -> dict[str, Any]:
         "events": events,
         "unique_users": {
             "with_search": len(search_users),
+            "with_starter_subscribe": len(starter_sub_users),
             "with_pro_request": len(pro_users),
             "activated": len(activated_users),
         },
         "conversion": {
             "register_to_search": conv(len(search_users), register_n),
+            "search_to_starter": conv(starter_sub_n, len(search_users)),
             "search_to_pro": conv(len(pro_users), len(search_users)),
             "pro_to_activated": conv(len(activated_users), len(pro_users)),
         },
         "ttfv_median_minutes": _median_minutes(ttfv),
         "ttc_median_hours": _median_minutes(ttc),
         "funnel_steps": funnel_steps,
+        "excluded_test_events": excluded_test_events,
+        "includes_test_traffic": include_test,
     }
 
 
