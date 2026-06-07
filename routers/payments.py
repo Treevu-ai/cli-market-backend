@@ -134,6 +134,11 @@ async def _handle_paypal_event(event: dict) -> dict:
             if sub_id:
                 db_delete_billing_pending(sub_id)
             actions.append(f"pro_activated:{username}")
+            try:
+                from market_funnel import record_funnel_event
+                record_funnel_event("activated", username=username, meta={"source": "paypal_webhook"}, dedupe=True)
+            except Exception:
+                pass
             # Auto-generate read_write API key and email it to the subscriber
             try:
                 from market_core import db_create_api_key, db_get_user_email
@@ -438,6 +443,11 @@ def process_pro_subscription_request(
             "duplicate": True,
         }
 
+    try:
+        from market_funnel import record_funnel_event
+        record_funnel_event("request_pro", username=username or None, meta={"email": email}, dedupe=False)
+    except Exception:
+        pass
     req = db_create_subscription_request(username, email, PRO_PAYMENT_URL)
     sub_mail = send_pro_payment_email(
         to_email=email,

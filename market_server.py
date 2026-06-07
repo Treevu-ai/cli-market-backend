@@ -94,6 +94,11 @@ async def lifespan(_app: FastAPI):
     """
     ensure_db_initialized()
     try:
+        from market_funnel import ensure_funnel_schema
+        ensure_funnel_schema()
+    except Exception as e:
+        logger.warning("Funnel schema skipped: %s", e)
+    try:
         from price_snapshots_schema import ensure_canonical_product_id_column
 
         ensure_canonical_product_id_column()
@@ -145,6 +150,7 @@ from routers.cart import router as cart_router
 from routers.data_v1 import router as data_v1_router
 from routers.dashboard import router as dashboard_router
 from routers.data_export import router as data_export_router
+from routers.funnel import router as funnel_router
 from routers.health import router as health_router
 from routers.index_api import router as index_router
 from routers.intel import router as intel_router
@@ -169,6 +175,7 @@ for r in (
     dashboard_router,
     data_v1_router,
     data_export_router,
+    funnel_router,
     health_router,
     index_router,
     intel_router,

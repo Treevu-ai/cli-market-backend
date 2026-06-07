@@ -12,18 +12,12 @@ import uuid
 
 from fastapi import APIRouter, HTTPException
 
-from market_core import (
-    db_create_api_key,
-    db_create_subscription_request,
-    db_set_subscription,
-    get_db,
-)
-
+from market_core import get_db
 
 router = APIRouter(tags=["retailers"])
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_PLATFORMS = {"vtex", "shopify", "magento", "woocommerce", "other"}
+_PLATFORMS = {"vtex", "shopify", "magento", "other"}
 
 
 def _insert_application(
@@ -38,7 +32,7 @@ def _insert_application(
     api_token_hint: str = "",
     notes: str = "",
 ) -> str:
-    from retailer_onboarding import token_hint
+    from backend_interface import token_hint
 
     app_id = f"RET-{uuid.uuid4().hex[:8].upper()}"
     secret = (api_token or "").strip()
@@ -112,10 +106,81 @@ def apply_retailer(body: dict):
             "notify you by email within 24 hours. Free forever."
         ),
         "next_steps": [
-            "VTEX: public catalog URL or app key/token. Shopify/Magento: read-only API token.",
-            "WooCommerce: store URL (Store API) or REST consumer key + secret for full catalog.",
+            "Keep your read-only API token ready (Shopify/Magento) or confirm VTEX public catalog.",
             "Track status: hello@cli-market.dev with your application ID.",
         ],
+    }
+
+
+
+
+def process_starter_subscription_request(
+    *,
+    email: str,
+    lang: str = "en",
+    note: str = "",
+    profile: str = "",
+    name: str = "",
+) -> dict:
+    """Persist Starter lead and send acknowledgment + ops notify."""
+    import uuid
+
+    from market_connectors.email_outbound import (
+        send_starter_request_notify,
+        send_starter_request_received_email,
+    )
+
+    email = email.strip().lower()
+    lang = (lang or "en").strip().lower()[:2]
+    request_id = f"STR-{uuid.uuid4().hex[:8].upper()}"
+
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO contacts (chat_id, first_name, username, last_message, created_at, updated_at)
+        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+        """,
+        (request_id, "starter", email, f"[starter] {note[:2000]}"),
+    )
+    db.commit()
+    db.close()
+
+    try:
+        from market_funnel import record_funnel_event
+        record_funnel_event("starter_request", meta={"email": email}, dedupe=False)
+    except Exception:
+        pass
+    ack = send_starter_request_received_email(
+        to_email=email,
+        request_id=request_id,
+        lang=lang,
+        name=name,
+    )
+    notify = send_starter_request_notify(
+        subscriber_email=email,
+        request_id=request_id,
+        profile=profile,
+        name=name,
+        note=note,
+    )
+
+    if lang == "es":
+        message = (
+            f"Recibimos su solicitud Starter ({request_id}). "
+            "Le activamos en ≤24h hábiles por email."
+        )
+    else:
+        message = (
+            f"We received your Starter request ({request_id}). "
+            "We activate within 24 business hours by email."
+        )
+
+    return {
+        "ok": True,
+        "request_id": request_id,
+        "email_sent": bool(ack.get("sent")),
+        "notify_sent": bool(notify.get("sent")),
+        "message": message,
     }
 
 
@@ -126,43 +191,24 @@ def contact_request(body: dict):
     use_case = (body.get("use_case") or body.get("message") or "").strip()
     plan = (body.get("plan") or "free").strip().lower()
     lang = (body.get("lang") or "en").strip().lower()[:2]
-    profile = (body.get("profile") or "").strip().lower()[:20]
-    name = (body.get("name") or "").strip()[:120]
-    company = (body.get("company") or "").strip()[:200]
+
     if not email or not _EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="valid email is required")
-    if not use_case or len(use_case) < 5:
-        raise HTTPException(status_code=400, detail="use_case is required (min 5 chars)")
+    if not use_case or len(use_case) < 10:
+        raise HTTPException(status_code=400, detail="use_case is required (min 10 chars)")
 
-    db = get_db()
-    chat_id = f"web-{uuid.uuid4().hex[:10]}"
-    tag = f"[{plan}/{profile}]" if profile else f"[{plan}]"
-    display_name = name or plan
-    full_message = f"{tag} {use_case}"
-    if company:
-        full_message = f"{tag} company={company} {use_case}"
-    db.execute(
-        """
-        INSERT INTO contacts (chat_id, first_name, username, last_message, created_at, updated_at)
-        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
-        """,
-        (chat_id, display_name, email, full_message[:2000]),
-    )
-    db.commit()
-    db.close()
-
-    try:
-        from market_connectors.email_outbound import send_contact_notify
-        send_contact_notify(
-            email=email,
-            plan=plan,
-            profile=profile,
-            name=name,
-            company=company,
-            use_case=use_case,
+    if plan not in ("pro", "starter"):
+        db = get_db()
+        chat_id = f"web-{uuid.uuid4().hex[:10]}"
+        db.execute(
+            """
+            INSERT INTO contacts (chat_id, first_name, username, last_message, created_at, updated_at)
+            VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            (chat_id, plan, email, f"[{plan}] {use_case[:2000]}"),
         )
-    except Exception:
-        pass
+        db.commit()
+        db.close()
 
     if plan == "pro":
         from routers.payments import process_pro_subscription_request
@@ -182,34 +228,19 @@ def contact_request(body: dict):
         }
 
     if plan == "starter":
-        trial_username = f"user-{uuid.uuid4().hex[:12]}"
-        from server_deps import hash_password
-        from market_core import db_save_user
-        db_save_user(trial_username, hash_password(uuid.uuid4().hex), None)
-        db_set_subscription(trial_username, "starter")
-        key_data = db_create_api_key(trial_username, "read", "starter-trial")
-        db_create_subscription_request(trial_username, email, "starter-trial")
-        try:
-            from market_connectors.email_outbound import send_credentials_email
-            send_credentials_email(
-                to_email=email,
-                username=trial_username,
-                api_key=key_data["key"],
-                plan="starter",
-                lang=lang,
-            )
-        except Exception:
-            pass
+        starter = process_starter_subscription_request(
+            email=email,
+            lang=lang,
+            note=use_case,
+            profile=(body.get("profile") or "").strip(),
+            name=(body.get("name") or "").strip(),
+        )
         return {
             "ok": True,
             "plan": "starter",
-            "username": trial_username,
-            "key_prefix": key_data["prefix"],
-            "message": (
-                "Prueba activada — revisa tu correo para tu API key."
-                if lang == "es" else
-                "Trial activated — check your email for your API key."
-            ),
+            "request_id": starter.get("request_id"),
+            "email_sent": starter.get("email_sent", False),
+            "message": starter.get("message", "Starter request received."),
         }
 
     return {"ok": True, "message": "Thanks — we'll reply within 24 hours."}

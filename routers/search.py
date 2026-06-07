@@ -76,9 +76,15 @@ class BasketRequest(BaseModel):
 async def search_products(body: SearchRequest, authorization: str | None = Header(None)):
     """Multi-store parallel search. Stores are queried in batches of PARALLEL_BATCH;
     a per-batch timeout prevents a slow store from holding up the whole response."""
-    require_api_key(authorization)
+    username = require_api_key(authorization)
     try:
-        return await _search_products(body)
+        result = await _search_products(body)
+        try:
+            from market_funnel import maybe_first_search
+            maybe_first_search(username, query=body.query)
+        except Exception:
+            pass
+        return result
     except Exception as e:
         logger.exception("search_products crashed")
         raise HTTPException(status_code=500, detail=str(e))
