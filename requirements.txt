@@ -1,8 +1,6 @@
-# Shared core library — single source of truth for the data-moat modules.
+# Public PyPI deps only — GitHub dependency graph / auto-submission read this file.
+# Private cli-market-index pin lives in requirements-private.txt (Docker + local dev).
 cli-market-core>=1.9.5
-
-# Semantic moat — Golden Record persistence (SQLite dev / Postgres prod).
-cli-market-index[postgres] @ git+https://github.com/Treevu-ai/cli-market-index@2bfa6d210fc429e1c9c7780d7df9158eb0713a66
 
 # Runtime / dev deps not pulled in transitively by cli-market-core.
 playwright>=1.45.0

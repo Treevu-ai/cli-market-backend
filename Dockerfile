@@ -11,14 +11,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Railway → API service → Variables: GITHUB_TOKEN (PAT with repo scope on cli-market-index).
 ARG GITHUB_TOKEN
 
-COPY requirements.txt .
+COPY requirements.txt requirements-private.txt .
 RUN set -eux; \
     if [ -z "${GITHUB_TOKEN}" ]; then \
       echo "error: GITHUB_TOKEN build arg required for private cli-market-index (git+https)" >&2; \
       exit 1; \
     fi; \
     git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
-    pip install --no-cache-dir -r requirements.txt; \
+    pip install --no-cache-dir -r requirements.txt -r requirements-private.txt; \
     rm -f /root/.gitconfig
 
 # Force layer rebuild on deploy (2026-06-01-refresh-v2)

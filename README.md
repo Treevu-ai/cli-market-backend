@@ -80,7 +80,7 @@ MARKET_API_URL=https://cli-market-production.up.railway.app
 ## Dev setup
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-private.txt
 uvicorn market_server:app --reload --port 8765
 ```
 
