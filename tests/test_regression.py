@@ -318,7 +318,7 @@ def test_dashboard_html_uses_single_renderer(isolated_db):
     html = r.text
     assert "global-bar" in html
     assert "COLLECTOR" in html
-    assert "solo dato limpio" in html
+    assert "Solo datos limpios" in html
     assert "GUÍA POR CAPAS" not in html
     assert html.count("Canasta básica") <= 2
 
