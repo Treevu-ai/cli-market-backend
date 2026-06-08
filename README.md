@@ -1,3 +1,10 @@
+<!-- readme-hero -->
+<div align="center">
+
+<img src="assets/readme-hero.svg" alt="CLI MARKET BACKEND" width="100%" />
+
+</div>
+
 # cli-market-backend
 
 > **Private repo** · Treevu-ai org — request access from maintainer.
@@ -89,11 +96,11 @@ pytest tests/
 
 | Plan | Price | Requests/day |
 |---|---|---|
-| Free | $0 | 1,000 |
-| Starter | $29/mo | 5,000 |
-| Pro | $79/mo | 10,000 |
-| Builder | $149/mo | 50,000 |
-| Enterprise | Custom | Unlimited |
+| Free | $0 | 2,000 |
+| Pro | $39/mo | 20,000 |
+| Enterprise | Custom | Custom/SLAs |
+
+*(Pricing simplificado — foco principal 1 ICP: AI Agent Builders via pip/MCP. Legacy Starter/Builder consolidados en Pro.)*
 
 Payments: PayPal · Mercado Pago · QR Yape/Plin.
 
