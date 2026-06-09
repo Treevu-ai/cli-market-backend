@@ -778,6 +778,11 @@ async def collect_one_pg(pool, store, queries):
                             err = str(retry_exc)
                     logger.warning("collect %s/%s: %s", store, q, err[:120])
                     cb.lose(store)
+        had_real_error = query_fail > 0
+        # Health decision: only penalize consecutive_failures on *real* errors (timeouts, 5xx, exceptions, 429 after retry).
+        # Pure empties (store doesn't carry the rotated query terms this cycle) are normal due to query rotation
+        # and should not increment streaks or poison success_pct for partial-catalog stores.
+        health_ok = (collected > 0 or query_ok > 0) and not had_real_error
         if pending:
             async with pool.acquire() as conn:
                 for prod in pending:
@@ -787,8 +792,8 @@ async def collect_one_pg(pool, store, queries):
                     except Exception as exc:
                         insert_errors.append(str(exc)[:120])
                         logger.warning("insert %s: %s", store, str(exc)[:120])
-                await pg_health(conn, store, collected > 0 or query_ok > 0)
-        elif query_ok > 0:
+                await pg_health(conn, store, health_ok)
+        elif query_ok > 0 or (query_empty > 0 and not had_real_error):
             async with pool.acquire() as conn:
                 await pg_health(conn, store, True)
         else:
