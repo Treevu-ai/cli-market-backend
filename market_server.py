@@ -99,6 +99,11 @@ async def lifespan(_app: FastAPI):
     except Exception as e:
         logger.warning("Funnel schema skipped: %s", e)
     try:
+        from market_observatory import ensure_observatory_schema
+        ensure_observatory_schema()
+    except Exception as e:
+        logger.warning("Observatory schema skipped: %s", e)
+    try:
         from price_snapshots_schema import ensure_canonical_product_id_column
 
         ensure_canonical_product_id_column()
@@ -128,6 +133,14 @@ app = FastAPI(
 )
 
 app.add_middleware(AccessLogMiddleware)
+from market_core import db_validate_api_key
+from market_observatory import ObservatoryMiddleware
+
+app.add_middleware(
+    ObservatoryMiddleware,
+    auth_user_fn=auth_user,
+    api_key_fn=db_validate_api_key,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv(
@@ -135,7 +148,7 @@ app.add_middleware(
     ).split(","),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Agent-ID", "X-Session-ID", "X-Country"],
 )
 
 
@@ -151,6 +164,7 @@ from routers.data_v1 import router as data_v1_router
 from routers.dashboard import router as dashboard_router
 from routers.data_export import router as data_export_router
 from routers.funnel import router as funnel_router
+from routers.observatory import router as observatory_router
 from routers.health import router as health_router
 from routers.index_api import router as index_router
 from routers.intel import router as intel_router
@@ -176,6 +190,7 @@ for r in (
     data_v1_router,
     data_export_router,
     funnel_router,
+    observatory_router,
     health_router,
     index_router,
     intel_router,
