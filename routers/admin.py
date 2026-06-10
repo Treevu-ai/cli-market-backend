@@ -5,6 +5,7 @@ Endpoints:
   POST /admin/collect         Trigger a price collection run synchronously
   POST /v1/admin/scan-stores  Probe known retailer domains for liveness
   GET  /admin/contacts        List captured lead emails (plan, profile, signup date)
+  POST /v1/admin/set-tier     Set a user's subscription tier (free|pro|enterprise)
   POST /admin/cron/funnel-digest  Post evening funnel digest to Slack (#funnel-cli-market)
   POST /admin/cron/command-control  Post morning founder panel (#command-control-cli-market)
   POST /admin/cron/adoption-index  Persist Adoption Index snapshot (nightly cron)
@@ -23,12 +24,47 @@ import httpx
 from fastapi import APIRouter, Body, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from market_core import STORES, fetch_store, product_from_json, get_db
+from market_core import STORES, db_get_subscription, db_get_users, db_set_subscription, fetch_store, product_from_json, get_db
+from market_billing import TIERS
 from server_deps import require_admin
 
 logger = logging.getLogger(__name__)
 
+_VALID_TIERS = frozenset(TIERS.keys())
+
 router = APIRouter(prefix="", tags=["admin"])
+
+
+@router.post("/v1/admin/set-tier")
+def admin_set_tier(
+    body: dict = Body(...),
+    authorization: str | None = Header(None),
+):
+    """Set a user's subscription tier. Admin-only (MARKET_API_TOKEN)."""
+    require_admin(authorization)
+    username = (body.get("username") or "").strip()
+    tier = (body.get("tier") or "").strip().lower()
+    if not username:
+        raise HTTPException(status_code=400, detail="username required")
+    if tier not in _VALID_TIERS:
+        raise HTTPException(status_code=400, detail=f"tier must be one of {sorted(_VALID_TIERS)}")
+    if username not in db_get_users():
+        raise HTTPException(status_code=404, detail=f"user not found: {username}")
+    db_set_subscription(username, tier)
+    try:
+        from market_funnel import record_funnel_event
+
+        if tier == "pro":
+            record_funnel_event(
+                "activated",
+                username=username,
+                meta={"source": "ops_manual", "reason": "admin_set_tier"},
+                dedupe=True,
+            )
+    except Exception:
+        pass
+    logger.info("audit admin_set_tier username=%s tier=%s", username, tier)
+    return {"username": username, "subscription": db_get_subscription(username)}
 
 
 @router.get("/admin/contacts")
