@@ -32,7 +32,7 @@ def _insert_application(
     api_token_hint: str = "",
     notes: str = "",
 ) -> str:
-    from backend_interface import token_hint
+    from retailer_onboarding import token_hint
 
     app_id = f"RET-{uuid.uuid4().hex[:8].upper()}"
     secret = (api_token or "").strip()
