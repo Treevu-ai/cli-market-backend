@@ -25,6 +25,14 @@ from ops.load_env import load_repo_env
 
 load_repo_env()
 
+# Local runs against Railway: internal hostname is unreachable; prefer public URL.
+_public = os.getenv("DATABASE_PUBLIC_URL", "").strip()
+if _public and (
+    not os.getenv("DATABASE_URL")
+    or "railway.internal" in os.getenv("DATABASE_URL", "")
+):
+    os.environ["DATABASE_URL"] = _public
+
 
 def _pct(successes: int, requests: int) -> float:
     if requests <= 0:
@@ -131,8 +139,8 @@ def main() -> int:
     print(f"{'=' * 60}")
     for item in sorted(plan, key=lambda x: x["prev_pct"]):
         print(
-            f"  {item['store']:<18} {item['prev_pct']:>5.1f}% → {item['new_pct']:>5.1f}% "
-            f"cf={item['prev_cf']}→0  snap24h={item['n_24h']}  [{item['state']}]"
+            f"  {item['store']:<18} {item['prev_pct']:>5.1f}% -> {item['new_pct']:>5.1f}% "
+            f"cf={item['prev_cf']}->0  snap24h={item['n_24h']}  [{item['state']}]"
         )
 
     if not plan:
@@ -160,7 +168,7 @@ def main() -> int:
         )
     db.commit()
     db.close()
-    print(f"\n✓ Updated {len(plan)} stores.")
+    print(f"\nOK Updated {len(plan)} stores.")
     return 0
 
 
