@@ -39,6 +39,17 @@ FUNNEL_EVENTS = frozenset(
     }
 )
 
+_DIGEST_EVENTS = frozenset(
+    {
+        "register",
+        "first_search",
+        "starter_subscribe",
+        "starter_request",
+        "request_pro",
+        "activated",
+    }
+)
+
 _FUNNEL_DDL_PG = """
 CREATE TABLE IF NOT EXISTS funnel_events (
     id SERIAL PRIMARY KEY,
@@ -285,6 +296,65 @@ def funnel_summary(*, days: int = 30, include_test: bool = False) -> dict[str, A
         "excluded_test_events": excluded_test_events,
         "includes_test_traffic": include_test,
     }
+
+
+def funnel_recent_events(
+    *,
+    hours: int = 24,
+    exclude_test: bool = True,
+    exclude_noise: bool | None = None,
+) -> list[dict[str, Any]]:
+    """Recent funnel rows for Slack digest (newest first)."""
+    if exclude_noise is not None:
+        exclude_test = exclude_noise
+    ensure_funnel_schema()
+    hours = max(1, min(hours, 168))
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT event, username, meta, created_at
+        FROM funnel_events
+        WHERE created_at >= ? AND event IN ({})
+        ORDER BY created_at DESC
+        """.format(",".join("?" * len(_DIGEST_EVENTS))),
+        (since, *_DIGEST_EVENTS),
+    ).fetchall()
+    db.close()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        user = row["username"] or ""
+        meta = _parse_meta(row["meta"])
+        if exclude_test and is_test_funnel_traffic(user, meta):
+            continue
+        out.append(
+            {
+                "event": row["event"],
+                "username": user,
+                "meta": meta,
+                "created_at": row["created_at"],
+            }
+        )
+    return out
+
+
+def funnel_digest_counts(
+    *,
+    hours: int = 24,
+    exclude_test: bool = True,
+    exclude_noise: bool | None = None,
+) -> dict[str, int]:
+    """Event counts in the digest window."""
+    if exclude_noise is not None:
+        exclude_test = exclude_noise
+    counts = {e: 0 for e in _DIGEST_EVENTS}
+    for row in funnel_recent_events(hours=hours, exclude_test=exclude_test):
+        ev = row.get("event", "")
+        if ev in counts:
+            counts[ev] += 1
+    return counts
 
 
 def maybe_first_search(username: str, *, query: str = "") -> None:

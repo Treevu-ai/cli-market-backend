@@ -5,6 +5,9 @@ Endpoints:
   POST /admin/collect         Trigger a price collection run synchronously
   POST /v1/admin/scan-stores  Probe known retailer domains for liveness
   GET  /admin/contacts        List captured lead emails (plan, profile, signup date)
+  POST /admin/cron/funnel-digest  Post evening funnel digest to Slack (#funnel-cli-market)
+  POST /admin/cron/command-control  Post morning founder panel (#command-control-cli-market)
+  POST /admin/cron/adoption-index  Persist Adoption Index snapshot (nightly cron)
 
 Protected with MARKET_API_TOKEN (Bearer). Set on Railway before exposing publicly.
 """
@@ -13,14 +16,17 @@ from __future__ import annotations
 
 import io
 import csv
+import logging
 import time
 
 import httpx
-from fastapi import APIRouter, Body, Header, Query
+from fastapi import APIRouter, Body, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from market_core import STORES, fetch_store, product_from_json, get_db
 from server_deps import require_admin
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="", tags=["admin"])
 
@@ -227,3 +233,57 @@ def admin_cron_adoption_index(
     payload = compute_adoption_index(days=days, include_github=github)
     saved = persist_snapshot(payload)
     return {"ok": True, "score": payload["score"], "grade": payload["grade"], "snapshot": saved}
+
+
+@router.post("/admin/cron/funnel-digest")
+def admin_cron_funnel_digest(
+    authorization: str | None = Header(None),
+    hours: int = 24,
+):
+    """Post adoption funnel digest to #funnel-cli-market (evening cron)."""
+    require_admin(authorization)
+    hours = max(1, min(hours, 168))
+
+    import sys
+    from pathlib import Path
+
+    ops_dir = Path(__file__).resolve().parent.parent / "ops"
+    if str(ops_dir) not in sys.path:
+        sys.path.insert(0, str(ops_dir))
+    from billing_slack import format_funnel_digest_message, notify_funnel_digest
+
+    text = format_funnel_digest_message(hours=hours)
+    if not notify_funnel_digest(hours=hours):
+        raise HTTPException(
+            status_code=503,
+            detail="Slack funnel channel not configured or delivery failed",
+        )
+    return {"ok": True, "hours": hours, "posted": True, "preview": text[:800]}
+
+
+@router.post("/admin/cron/command-control")
+def admin_cron_command_control(
+    authorization: str | None = Header(None),
+    full: bool = False,
+):
+    """Post founder Command & Control panel (morning cron)."""
+    require_admin(authorization)
+
+    import sys
+    from pathlib import Path
+
+    ops_dir = Path(__file__).resolve().parent.parent / "ops"
+    if str(ops_dir) not in sys.path:
+        sys.path.insert(0, str(ops_dir))
+    from command_control_daily import publish_command_control
+
+    try:
+        return publish_command_control(remote=True, brief=not full, save=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Slack command-control not configured: {exc}",
+        ) from exc
+    except Exception as exc:
+        logger.exception("command-control cron failed")
+        raise HTTPException(status_code=500, detail=str(exc)[:200]) from exc
