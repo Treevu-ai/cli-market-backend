@@ -210,3 +210,20 @@ async def admin_scan_stores(
             )
     ok = [c for c in candidates if c["ok"]]
     return {"scanned": len(candidates), "working": len(ok), "candidates": candidates}
+
+
+@router.post("/admin/cron/adoption-index")
+def admin_cron_adoption_index(
+    authorization: str | None = Header(None),
+    days: int = 30,
+    github: bool = True,
+):
+    """Persist Adoption Index snapshot (nightly cron)."""
+    require_admin(authorization)
+    days = max(1, min(days, 90))
+
+    from market_adoption_index import compute_adoption_index, persist_snapshot
+
+    payload = compute_adoption_index(days=days, include_github=github)
+    saved = persist_snapshot(payload)
+    return {"ok": True, "score": payload["score"], "grade": payload["grade"], "snapshot": saved}
