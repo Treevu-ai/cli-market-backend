@@ -23,13 +23,20 @@ jobs:
           path: .deps/cli-market-index
           token: ${{ secrets.GH_PAT }}
 
+      - uses: actions/checkout@v6
+        with:
+          repository: Treevu-ai/cli-market-core
+          ref: v1.9.23
+          path: .deps/cli-market-core
+          token: ${{ secrets.GH_PAT }}
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install dependencies
         run: |
-          pip install "cli-market-core>=1.9.5"
+          pip install -e ".deps/cli-market-core"
           pip install -e ".deps/cli-market-index[postgres]"
           pip install playwright python-dotenv pytest pytest-asyncio
 
