@@ -158,10 +158,17 @@ def health_collector():
     """Collector health: last run, staleness, store coverage."""
     try:
         db = get_db()
-        last = db.execute(
-            "SELECT started_at, finished_at, stores_attempted, stores_succeeded, prices_collected "
-            "FROM collector_runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        try:
+            last = db.execute(
+                "SELECT started_at, finished_at, stores_attempted, stores_succeeded, "
+                "prices_collected, stores_with_yield "
+                "FROM collector_runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        except Exception:
+            last = db.execute(
+                "SELECT started_at, finished_at, stores_attempted, stores_succeeded, prices_collected "
+                "FROM collector_runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
         total_runs = db.execute("SELECT COUNT(*) as n FROM collector_runs").fetchone()["n"]
         active_stores = db.execute(
             "SELECT COUNT(DISTINCT store) as n FROM price_snapshots WHERE price > 0"
@@ -192,6 +199,12 @@ def health_collector():
         "age_hours": round(age_h, 1) if age_h is not None else None,
         "stores_attempted": last["stores_attempted"],
         "stores_succeeded": last["stores_succeeded"] if not in_progress else None,
+        "stores_responded": last["stores_succeeded"] if not in_progress else None,
+        "stores_with_yield": (
+            last["stores_with_yield"]
+            if not in_progress and "stores_with_yield" in last.keys()
+            else None
+        ),
         "prices_collected": last["prices_collected"] if not in_progress else None,
         "stores_active": active_stores or 0,
         "stores_total": len(STORES),

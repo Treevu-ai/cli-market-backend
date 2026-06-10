@@ -110,6 +110,12 @@ async def lifespan(_app: FastAPI):
     except Exception as e:
         logger.warning("canonical_product_id migration skipped: %s", e)
     try:
+        from collector_schema import ensure_collector_runs_columns
+
+        ensure_collector_runs_columns()
+    except Exception as e:
+        logger.warning("collector_runs migration skipped: %s", e)
+    try:
         db_migrate_from_json()
     except Exception as e:
         logger.warning("JSON migration skipped: %s", e)

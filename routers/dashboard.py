@@ -584,7 +584,8 @@ def _dashboard_data():
 
     # ── Collector status ─────────────────────────────────────────────────────
     last_run = db.execute(
-        "SELECT started_at, finished_at, stores_succeeded, stores_attempted, prices_collected "
+        "SELECT started_at, finished_at, stores_succeeded, stores_attempted, "
+        "prices_collected, stores_with_yield "
         "FROM collector_runs ORDER BY id DESC LIMIT 1"
     ).fetchone()
 
@@ -712,7 +713,7 @@ def _dashboard_data():
     # ── Operacional: collector run history ───────────────────────────────────
     collector_history = db.execute(
         """SELECT started_at, finished_at, stores_attempted, stores_succeeded,
-                  prices_collected, errors
+                  stores_with_yield, prices_collected, errors
            FROM collector_runs ORDER BY id DESC LIMIT 10"""
     ).fetchall()
 
@@ -970,6 +971,10 @@ def _dashboard_data():
             "last_run": last_run["started_at"] if last_run else None,
             "last_finished": last_run["finished_at"] if last_run else None,
             "stores_succeeded": last_run["stores_succeeded"] if last_run else 0,
+            "stores_responded": last_run["stores_succeeded"] if last_run else 0,
+            "stores_with_yield": (
+                last_run["stores_with_yield"] if last_run and last_run["stores_with_yield"] is not None else None
+            ),
             "prices_collected": last_prices_collected,
             "last_prices_collected": last_prices_collected,
         },
