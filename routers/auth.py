@@ -50,6 +50,10 @@ class CreateApiKeyRequest(BaseModel):
     label: str = ""
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/auth/register")
@@ -89,16 +93,36 @@ def login(body: LoginRequest):
     if not user or not verify_password(body.password, user["password"]):
         record_auth_failure(body.username)
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    token = user.get("token")
-    if not token:
-        token = str(uuid.uuid4())
-        db_save_user(body.username, user["password"], token)
+    from market_core.auth_tokens import issue_session_tokens
+
+    tokens = issue_session_tokens(body.username)
     try:
         from market_funnel import record_funnel_event
         record_funnel_event("login", username=body.username, dedupe=False)
     except Exception:
         pass
-    return {"message": "Autenticado", "username": body.username, "token": token}
+    return {"message": "Autenticado", "username": body.username, **tokens}
+
+
+@router.post("/auth/refresh")
+def refresh_session(body: RefreshRequest):
+    check_rate_limit("auth")
+    from market_core.auth_tokens import rotate_token
+
+    try:
+        tokens = rotate_token(body.refresh_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    return {"ok": True, **tokens}
+
+
+@router.post("/auth/revoke")
+def revoke_session(authorization: str | None = Header(None)):
+    username = require_user(authorization)
+    from market_core.auth_tokens import revoke_all_tokens
+
+    revoke_all_tokens(username)
+    return {"ok": True, "revoked": username}
 
 
 @router.get("/auth/whoami")

@@ -212,6 +212,14 @@ def health_collector():
     }
 
 
+@router.get("/v1/capabilities")
+def commerce_capabilities():
+    """Public matrix: what checkout does (CLI Market internal payment) vs retailer fulfillment."""
+    from market_core.commerce_capabilities import get_commerce_capabilities
+
+    return get_commerce_capabilities()
+
+
 @router.get("/v1/sources/health")
 def sources_health(
     store: str | None = None,

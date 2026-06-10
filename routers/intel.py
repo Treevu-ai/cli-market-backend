@@ -17,7 +17,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, field_validator
 
 from market_core import STORES, get_db
 from market_enrich_subcategory import ENRICH_SUBCATEGORIES, get_subcategory_enrichment
@@ -32,7 +34,7 @@ from market_indicators import (
     refresh_indicators,
 )
 
-from server_deps import require_api_key
+from server_deps import require_api_key, require_pro
 
 router = APIRouter(tags=["intel"])
 
@@ -303,3 +305,59 @@ def intel_enrichment_refresh(country: str | None = None, authorization: str | No
     require_api_key(authorization)
     """Refresh only enrichment indicators (OFF sample, Wiki, weather, food CPI)."""
     return refresh_enrichment_only(country=country)
+
+
+class PricePulseSubmit(BaseModel):
+    country: str = "PE"
+    callback_url: str = ""
+
+    @field_validator("country")
+    @classmethod
+    def _country_code(cls, v: str) -> str:
+        c = (v or "PE").strip().upper()[:2]
+        if len(c) != 2:
+            raise ValueError("country must be 2-letter ISO code")
+        return c
+
+
+@router.post("/v1/intel/price-pulse")
+def submit_price_pulse(body: PricePulseSubmit, authorization: str | None = Header(None)):
+    username = require_pro(authorization)
+    from market_core.intel_jobs import db_create_intel_job
+
+    job = db_create_intel_job(
+        username,
+        job_type="price_pulse",
+        country=body.country,
+        callback_url=(body.callback_url or "").strip(),
+    )
+    return {"ok": True, **job}
+
+
+@router.get("/v1/intel/price-pulse/{job_id}")
+def get_price_pulse_status(job_id: str, authorization: str | None = Header(None)):
+    username = require_pro(authorization)
+    from market_core.intel_jobs import db_get_intel_job
+
+    job = db_get_intel_job(job_id)
+    if not job or job.get("username") != username:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.get("/v1/intel/price-pulse/{job_id}/download")
+def download_price_pulse_report(job_id: str, authorization: str | None = Header(None)):
+    from pathlib import Path
+
+    username = require_pro(authorization)
+    from market_core.intel_jobs import db_get_intel_job
+
+    job = db_get_intel_job(job_id)
+    if not job or job.get("username") != username:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("status") != "completed":
+        raise HTTPException(status_code=409, detail=f"Job status is {job.get('status')}")
+    path = (job.get("output_path") or "").strip()
+    if not path or not Path(path).is_file():
+        raise HTTPException(status_code=404, detail="Report file missing")
+    return FileResponse(path, media_type="text/markdown", filename=Path(path).name)

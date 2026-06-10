@@ -179,6 +179,7 @@ from routers.misc import router as misc_router
 from routers.orders import router as orders_router
 from routers.mercadopago import router as mercadopago_router
 from routers.payments import router as payments_router
+from routers.public_demo import router as public_demo_router
 from routers.retailers import router as retailers_router
 from routers.retailer_admin import router as retailer_admin_router
 from routers.search import router as search_router
@@ -204,6 +205,7 @@ for r in (
     misc_router,
     orders_router,
     payments_router,
+    public_demo_router,
     mercadopago_router,
     retailers_router,
     retailer_admin_router,

@@ -43,6 +43,20 @@ logger = logging.getLogger("market.server").getChild("search")
 router = APIRouter(tags=["search"])
 
 
+def _attach_source_health(response: dict, store_ids: list[str]) -> dict:
+    try:
+        from market_core.source_health import health_for_stores
+
+        db = get_db()
+        try:
+            response["source_health"] = health_for_stores(db, store_ids)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.debug("source_health attach skipped: %s", exc)
+    return response
+
+
 def _resolve_search_stores(body: SearchRequest) -> list[str]:
     stores = [body.store] if body.store else get_default_stores()
     stores = [s for s in stores if store_exists(s)]
@@ -79,6 +93,18 @@ async def search_products(body: SearchRequest, authorization: str | None = Heade
     username = require_api_key(authorization)
     try:
         result = await _search_products(body)
+        if username.startswith("demo:"):
+            try:
+                from market_funnel import record_funnel_event
+
+                record_funnel_event(
+                    "demo_first_tool_call",
+                    session_id=username.split(":", 1)[-1],
+                    meta={"tool": "search", "query": body.query, "agent_source": "demo"},
+                    dedupe=True,
+                )
+            except Exception:
+                pass
         try:
             from market_funnel import maybe_first_search
             maybe_first_search(username, query=body.query)
@@ -145,13 +171,25 @@ async def _search_products(body: SearchRequest):
     if errors:
         response["partial"] = True
         response["errors"] = errors
-    return response
+    return _attach_source_health(response, stores)
 
 
 @router.post("/products/compare")
 async def compare_products(body: SearchRequest, authorization: str | None = Header(None)):
     """Cross-store comparison with brand+name fuzzy matching."""
-    require_api_key(authorization)
+    username = require_api_key(authorization)
+    if username.startswith("demo:"):
+        try:
+            from market_funnel import record_funnel_event
+
+            record_funnel_event(
+                "demo_first_tool_call",
+                session_id=username.split(":", 1)[-1],
+                meta={"tool": "compare", "query": body.query, "agent_source": "demo"},
+                dedupe=True,
+            )
+        except Exception:
+            pass
     stores = _resolve_search_stores(body)
     all_raw: dict[str, list] = {}
     for store in stores:
@@ -225,7 +263,8 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
     # ── Index Enrichment ──
     enrich_list(comparison)
     # ─────────────────────
-    return {"query": body.query, "comparison": comparison, "stores_compared": len(stores)}
+    payload = {"query": body.query, "comparison": comparison, "stores_compared": len(stores)}
+    return _attach_source_health(payload, list(stores))
 
 
 @router.post("/v1/basket/compare")

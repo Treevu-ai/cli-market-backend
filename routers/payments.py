@@ -32,6 +32,7 @@ import uuid
 from fastapi import APIRouter, Body, Header, HTTPException, Request
 
 from market_core import (
+    db_claim_webhook_event,
     db_delete_billing_pending,
     db_find_order_by_gateway_ref,
     db_find_order_by_id,
@@ -69,7 +70,11 @@ _ORDER_REF_RE = re.compile(r"CLI-Market-(ORD-[A-F0-9]+)", re.I)
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def _prepare_pending_order(username: str, method: str) -> tuple[list[dict], float, str]:
+def _prepare_pending_order(
+    username: str,
+    method: str,
+    idempotency_key: str | None = None,
+) -> tuple[list[dict], float, str]:
     """Common preamble: get cart, validate prices, create pending order, clear cart."""
     require_checkout_access(username)
     cart = db_get_cart(username)
@@ -82,9 +87,29 @@ def _prepare_pending_order(username: str, method: str) -> tuple[list[dict], floa
 
     total = validation.validated_total
     order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
-    db_create_order(username, cart, method, total, status="pending", order_id=order_id)
+    idem = (idempotency_key or "").strip() or None
+    created = db_create_order(
+        username,
+        cart,
+        method,
+        total,
+        status="pending",
+        order_id=order_id,
+        idempotency_key=idem,
+    )
+    if created.get("idempotent_replay"):
+        items = created.get("items") or cart
+        if idem and abs(float(created.get("total", 0)) - total) > 0.01:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "idempotency_key_reused_with_different_cart",
+                    "order_id": created["order_id"],
+                },
+            )
+        return items, float(created["total"]), created["order_id"]
     db_clear_cart(username)
-    return cart, total, order_id
+    return cart, total, created["order_id"]
 
 
 @router.post("/checkout/validate")
@@ -224,9 +249,12 @@ async def _handle_paypal_event(event: dict) -> dict:
 
 
 @router.post("/checkout/yape")
-def checkout_yape(authorization: str | None = Header(None)):
+def checkout_yape(
+    authorization: str | None = Header(None),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+):
     username = require_api_key(authorization)
-    _, total, order_id = _prepare_pending_order(username, "yape")
+    _, total, order_id = _prepare_pending_order(username, "yape", idempotency_key)
     yape_number = os.getenv("YAPE_PLIN_NUMBER", "")
     qr_data = yape_number or f"yape-{order_id.lower()}"
     if yape_number:
@@ -239,6 +267,8 @@ def checkout_yape(authorization: str | None = Header(None)):
         "qr_reference": order_id,
         "qr_url": f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={qr_data}",
         "status": "pending",
+        "confirmation_mode": "manual",
+        "capabilities": {"checkout_scope": "cli_market_internal"},
         "message": (
             f"Escanea con Yape/Plin. Monto: S/ {total:.2f}. Referencia: {order_id}. "
             "Confirmación manual hasta integrar agregador."
@@ -247,9 +277,12 @@ def checkout_yape(authorization: str | None = Header(None)):
 
 
 @router.post("/checkout/lemon")
-async def checkout_lemon(authorization: str | None = Header(None)):
+async def checkout_lemon(
+    authorization: str | None = Header(None),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+):
     username = require_api_key(authorization)
-    _, total, order_id = _prepare_pending_order(username, "lemon")
+    _, total, order_id = _prepare_pending_order(username, "lemon", idempotency_key)
     from market_connectors.lemon_payments import create_checkout
 
     try:
@@ -274,9 +307,12 @@ async def checkout_lemon(authorization: str | None = Header(None)):
 
 
 @router.post("/checkout/paypal")
-async def checkout_paypal(authorization: str | None = Header(None)):
+async def checkout_paypal(
+    authorization: str | None = Header(None),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+):
     username = require_api_key(authorization)
-    _, total, order_id = _prepare_pending_order(username, "paypal")
+    _, total, order_id = _prepare_pending_order(username, "paypal", idempotency_key)
     from market_connectors.paypal_payments import create_order
 
     try:
@@ -322,9 +358,12 @@ async def checkout_paypal_capture(
 
 
 @router.post("/checkout/wise")
-async def checkout_wise(authorization: str | None = Header(None)):
+async def checkout_wise(
+    authorization: str | None = Header(None),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+):
     username = require_api_key(authorization)
-    _, total, order_id = _prepare_pending_order(username, "wise")
+    _, total, order_id = _prepare_pending_order(username, "wise", idempotency_key)
     from market_connectors.wise_payments import WISE_API_TOKEN
 
     wise_ok = bool(WISE_API_TOKEN)
@@ -371,6 +410,16 @@ async def paypal_webhook(request: Request):
             logger.warning("PayPal webhook signature verification failed")
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
+    event_id = (
+        body.get("id")
+        or headers.get("paypal-transmission-id")
+        or headers.get("PAYPAL-TRANSMISSION-ID")
+        or ""
+    )
+    if event_id and not db_claim_webhook_event(str(event_id), "paypal"):
+        logger.info("PayPal webhook duplicate ignored: %s", event_id)
+        return {"received": True, "duplicate": True, "actions": []}
+
     result = await _handle_paypal_event(body)
     logger.info("PayPal webhook processed: %s", result)
     return {"received": True, **result}
@@ -392,6 +441,9 @@ def checkout_webhook(order_id: str = "", status: str = "paid", secret: str = "")
         raise HTTPException(status_code=401, detail="Invalid webhook secret")
     if not order_id:
         raise HTTPException(status_code=400, detail="order_id required")
+    event_key = f"checkout:{order_id}:{status}"
+    if not db_claim_webhook_event(event_key, "checkout_webhook"):
+        return {"order_id": order_id, "status": status, "duplicate": True, "message": "Already processed"}
     if not db_update_order_status(order_id, status):
         raise HTTPException(status_code=404, detail="Order not found")
     return {"order_id": order_id, "status": status, "message": f"Payment {status}"}
