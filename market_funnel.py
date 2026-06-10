@@ -35,6 +35,7 @@ FUNNEL_EVENTS = frozenset(
         "starter_subscribe",
         "starter_request",
         "request_pro",
+        "use_case_demo",
         "activated",
     }
 )
@@ -46,6 +47,7 @@ _DIGEST_EVENTS = frozenset(
         "starter_subscribe",
         "starter_request",
         "request_pro",
+        "use_case_demo",
         "activated",
     }
 )
