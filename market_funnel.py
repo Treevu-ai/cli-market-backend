@@ -357,6 +357,120 @@ def funnel_digest_counts(
     return counts
 
 
+def _is_auto_activate_link(payment_link: str) -> bool:
+    link = (payment_link or "").lower()
+    return "billing/subscriptions" in link or "/subscriptions?" in link
+
+
+def activation_summary(*, days: int = 30) -> dict[str, Any]:
+    """Pro activation path: webhook auto vs manual hosted-button queue."""
+    ensure_funnel_schema()
+    days = max(1, min(days, 90))
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    empty = {
+        "window_days": days,
+        "subscription_requests": {
+            "pending_auto": 0,
+            "pending_manual": 0,
+            "activated": 0,
+            "total": 0,
+        },
+        "activated_events": {
+            "webhook": 0,
+            "manual": 0,
+            "other": 0,
+            "unique_users": 0,
+            "total": 0,
+        },
+        "webhook_share": None,
+        "unified_webhook": True,
+        "conversion": {"webhook_of_activated": None},
+    }
+    db = get_db()
+    try:
+        req_rows = db.execute(
+            """
+            SELECT status, payment_link FROM subscription_requests
+            WHERE created_at >= ? AND id LIKE 'PRO-%'
+            """,
+            (since,),
+        ).fetchall()
+    except Exception:
+        db.close()
+        return empty
+    act_rows = db.execute(
+        """
+        SELECT username, meta FROM funnel_events
+        WHERE event = 'activated' AND created_at >= ?
+        """,
+        (since,),
+    ).fetchall()
+    db.close()
+
+    pending_auto = 0
+    pending_manual = 0
+    requests_activated = 0
+    for row in req_rows:
+        status = row["status"]
+        link = row["payment_link"] or ""
+        if status == "activated":
+            requests_activated += 1
+        elif status == "pending":
+            if _is_auto_activate_link(link):
+                pending_auto += 1
+            else:
+                pending_manual += 1
+
+    webhook_activated = 0
+    manual_activated = 0
+    other_activated = 0
+    activated_users: set[str] = set()
+    for row in act_rows:
+        user = row["username"]
+        if user:
+            activated_users.add(user)
+        meta = _parse_meta(row["meta"])
+        src = str(meta.get("source") or "")
+        if src == "paypal_webhook":
+            webhook_activated += 1
+        elif src in ("ops_manual", "manual", "activate_pro"):
+            manual_activated += 1
+        else:
+            other_activated += 1
+
+    total_activated_events = webhook_activated + manual_activated + other_activated
+
+    def conv(num: int, den: int) -> float | None:
+        if den <= 0:
+            return None
+        return round(num / den, 4)
+
+    webhook_share = conv(webhook_activated, total_activated_events)
+    unified = pending_manual == 0 and (
+        total_activated_events == 0 or (webhook_share or 0) >= 0.8
+    )
+
+    return {
+        "window_days": days,
+        "subscription_requests": {
+            "pending_auto": pending_auto,
+            "pending_manual": pending_manual,
+            "activated": requests_activated,
+            "total": len(req_rows),
+        },
+        "activated_events": {
+            "webhook": webhook_activated,
+            "manual": manual_activated,
+            "other": other_activated,
+            "unique_users": len(activated_users),
+            "total": total_activated_events,
+        },
+        "webhook_share": webhook_share,
+        "unified_webhook": unified,
+        "conversion": {"webhook_of_activated": webhook_share},
+    }
+
+
 def maybe_first_search(username: str, *, query: str = "") -> None:
     record_funnel_event(
         "first_search",

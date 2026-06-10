@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import HTMLResponse
 
 from market_adoption import adoption_summary
 from market_adoption_index import (
@@ -12,6 +13,7 @@ from market_adoption_index import (
     score_grade,
 )
 from market_funnel import FUNNEL_EVENTS, funnel_summary, record_funnel_event
+from market_golive import go_live_summary, render_go_live_html
 from market_pepy import pepy_summary
 from server_deps import auth_user, check_rate_limit, require_admin
 
@@ -177,3 +179,25 @@ def dashboard_pypi(authorization: str | None = Header(None)):
     """Admin Pepy stats (full payload)."""
     require_admin(authorization)
     return pepy_summary()
+
+
+@router.get("/dashboard/go-live")
+def dashboard_go_live(
+    authorization: str | None = Header(None),
+    days: int = 30,
+):
+    """Admin go-live KPIs + alerts (activation, revenue, data moat)."""
+    require_admin(authorization)
+    days = max(1, min(days, 90))
+    return go_live_summary(days=days)
+
+
+@router.get("/dashboard/go-live/page")
+def dashboard_go_live_page(
+    authorization: str | None = Header(None),
+    days: int = 30,
+):
+    """Admin HTML go-live dashboard."""
+    require_admin(authorization)
+    days = max(1, min(days, 90))
+    return HTMLResponse(render_go_live_html(days=days))

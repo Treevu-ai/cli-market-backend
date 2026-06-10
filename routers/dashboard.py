@@ -58,6 +58,11 @@ def _cached_dashboard_data() -> dict:
     return data
 
 
+def get_cached_dashboard_data() -> dict:
+    """Public accessor for dashboard JSON (used by market_golive and ops)."""
+    return _cached_dashboard_data()
+
+
 def _build_moat_guide(
     *,
     total_indexed: int,
