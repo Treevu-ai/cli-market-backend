@@ -609,7 +609,16 @@ async def _start_paypal_subscription(
         if not ok:
             return {"error": err}
 
-    result = await create_subscription(username=username, plan=plan_slug)
+    site = os.getenv("CLI_MARKET_SITE_URL", "https://cli-market.dev").rstrip("/")
+    return_url = f"{site}/?sub=success&plan={plan_slug}#pricing"
+    cancel_url = f"{site}/?sub=cancelled&plan={plan_slug}#pricing"
+
+    result = await create_subscription(
+        username=username,
+        plan=plan_slug,
+        return_url=return_url,
+        cancel_url=cancel_url,
+    )
     if "approve_url" not in result:
         return {"error": result.get("error", "PayPal error"), "details": result}
     sub_id = result["subscription_id"]
