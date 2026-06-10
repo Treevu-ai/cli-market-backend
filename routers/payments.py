@@ -48,6 +48,7 @@ from market_core import (
     db_get_cart,
 )
 from market_security import is_production_deploy, paypal_allow_unverified_webhooks
+from pre_checkout_validate import pre_checkout_validate
 from server_deps import check_rate_limit, require_api_key, require_checkout_access, require_user
 
 logger = logging.getLogger(__name__)
@@ -58,21 +59,36 @@ _ORDER_REF_RE = re.compile(r"CLI-Market-(ORD-[A-F0-9]+)", re.I)
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def _cart_total(cart: list[dict]) -> float:
-    return round(sum(i["price"] * i["quantity"] for i in cart), 2)
-
-
 def _prepare_pending_order(username: str, method: str) -> tuple[list[dict], float, str]:
-    """Common preamble: get cart, compute total, create pending order, clear cart."""
+    """Common preamble: get cart, validate prices, create pending order, clear cart."""
     require_checkout_access(username)
     cart = db_get_cart(username)
     if not cart:
         raise HTTPException(status_code=400, detail="Carrito vacío")
-    total = _cart_total(cart)
+
+    validation = pre_checkout_validate(username, cart)
+    if not validation.ok:
+        raise HTTPException(status_code=409, detail=validation.to_dict())
+
+    total = validation.validated_total
     order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
     db_create_order(username, cart, method, total, status="pending", order_id=order_id)
     db_clear_cart(username)
     return cart, total, order_id
+
+
+@router.post("/checkout/validate")
+def checkout_validate(authorization: str | None = Header(None)):
+    """Validate cart prices and freshness without creating an order."""
+    username = require_api_key(authorization)
+    require_checkout_access(username)
+    cart = db_get_cart(username)
+    if not cart:
+        raise HTTPException(status_code=400, detail="Carrito vacío")
+    result = pre_checkout_validate(username, cart)
+    if not result.ok:
+        raise HTTPException(status_code=409, detail=result.to_dict())
+    return result.to_dict()
 
 
 def _parse_market_order_ref(resource: dict) -> str | None:
