@@ -175,12 +175,14 @@ async def telegram_webhook(request: Request):
         for _ck, cv in COUNTRIES.items():
             reply += f"{cv['name']}: {len(cv['stores'])}\n"
     elif text in ("/pricing", "pricing", "precio", "costo"):
+        from market_billing import price_label_for_plan
         reply = (
             "<b>Planes CLI Market:</b>\n"
             "\u2022 Free: 1,000 req/día — pip install cli-market\n"
-            "\u2022 Pro: $79/mo — cli-market.dev/#pricing\n"
+            f"\u2022 Starter: {price_label_for_plan('starter')} — export + alertas\n"
+            f"\u2022 Pro: {price_label_for_plan('pro')} — cli-market.dev/#pricing\n"
             "\u2022 Enterprise: hello@cli-market.dev\n\n"
-            "Repo: github.com/Treevu-ai/cli-market-world"
+            "Docs: cli-market.dev/docs"
         )
     elif text in ("/docs", "docs", "api"):
         reply = (

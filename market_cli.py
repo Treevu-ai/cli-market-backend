@@ -832,8 +832,9 @@ def cmd_upgrade(args):
             else f"SMTP not configured. Pay here:\n[cyan underline]{link}[/]"
         )
 
+    from market_billing import price_label_for_plan
     console.print(Panel.fit(
-        f"[bold #00FF88]CLI Market Pro — $79/mo[/]\n\n{msg}\n\n"
+        f"[bold #00FF88]CLI Market Pro — {price_label_for_plan('pro')}[/]\n\n{msg}\n\n"
         "[dim]Tras pagar, responde al email con tu usuario CLI para activar Pro.[/]",
         title="Upgrade",
         border_style="#00FF88",

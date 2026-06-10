@@ -130,15 +130,13 @@ def require_admin(authorization: str | None) -> str:
 def require_checkout_access(username: str) -> None:
     """Raise 403 if user's tier cannot use checkout (unless legacy bypass)."""
     from market_core import user_can_checkout
+    from market_billing import checkout_upgrade_detail
 
     if user_can_checkout(username):
         return
     raise HTTPException(
         status_code=403,
-        detail=(
-            "Checkout requires CLI Market Pro ($79/mo). "
-            "Run: market upgrade"
-        ),
+        detail=checkout_upgrade_detail(),
     )
 
 

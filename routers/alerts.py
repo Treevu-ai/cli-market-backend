@@ -31,18 +31,19 @@ from server_deps import require_api_key
 
 router = APIRouter(tags=["alerts"])
 
-_ALERTS_TIERS = {"pro", "enterprise"}
+_ALERTS_TIERS = {"starter", "pro", "enterprise", "builder"}
 
 
 def _require_alerts_tier(username: str) -> None:
     sub = db_get_subscription(username)
     tier = (sub.get("tier") or "free").lower()
     if tier not in _ALERTS_TIERS:
+        from market_billing import price_label_for_plan
         raise HTTPException(
             status_code=403,
             detail=(
-                "Price alerts require CLI Market Pro ($79/mo). "
-                "Upgrade with: market upgrade"
+                f"Price alerts require CLI Market Starter or Pro ({price_label_for_plan('starter')} / {price_label_for_plan('pro')}). "
+                "Upgrade with: market upgrade --plan starter"
             ),
         )
 

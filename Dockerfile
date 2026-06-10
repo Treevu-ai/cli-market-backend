@@ -22,7 +22,7 @@ RUN set -eux; \
     rm -f /root/.gitconfig
 
 # Force layer rebuild on deploy (2026-06-01-refresh-v2)
-ARG CACHE_BUST=2026-06-06-shims-fix
+ARG CACHE_BUST=2026-06-09-pricing-v1
 COPY *.py pyproject.toml ./
 COPY routers/ ./routers/
 COPY ops/ ./ops/
