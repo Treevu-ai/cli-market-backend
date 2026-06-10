@@ -17,7 +17,7 @@ from market_core import get_db
 router = APIRouter(tags=["retailers"])
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_PLATFORMS = {"vtex", "shopify", "magento", "other"}
+_PLATFORMS = {"vtex", "shopify", "magento", "woocommerce", "other"}
 
 
 def _insert_application(
@@ -66,11 +66,17 @@ def _insert_application(
 @router.post("/v1/retailers/apply")
 def apply_retailer(body: dict):
     """Self-serve retailer onboarding — stores request for review / auto-validation."""
+    from market_connectors.email_outbound import (
+        send_retailer_application_notify,
+        send_retailer_application_received_email,
+    )
+
     store_name = (body.get("store_name") or "").strip()
     platform = (body.get("platform") or "").strip().lower()
     country = (body.get("country") or "").strip().upper()
     contact_email = (body.get("contact_email") or body.get("email") or "").strip()
     contact_name = (body.get("contact_name") or body.get("name") or "").strip()
+    lang = (body.get("lang") or "en").strip().lower()[:2]
 
     if not store_name or len(store_name) < 2:
         raise HTTPException(status_code=400, detail="store_name is required")
@@ -85,6 +91,7 @@ def apply_retailer(body: dict):
         raise HTTPException(status_code=400, detail="valid contact_email is required")
 
     api_token = (body.get("api_token") or body.get("api_token_hint") or "").strip()
+    website = (body.get("website") or "").strip()
 
     app_id = _insert_application(
         store_name=store_name,
@@ -92,22 +99,63 @@ def apply_retailer(body: dict):
         country=country,
         contact_email=contact_email,
         contact_name=contact_name,
-        website=(body.get("website") or "").strip(),
+        website=website,
         api_token=api_token,
         notes=(body.get("notes") or "").strip(),
     )
+
+    try:
+        from market_funnel import record_funnel_event
+
+        record_funnel_event(
+            "retailer_apply",
+            meta={"platform": platform, "country": country, "application_id": app_id},
+            dedupe=False,
+        )
+    except Exception:
+        pass
+
+    ack = send_retailer_application_received_email(
+        to_email=contact_email,
+        application_id=app_id,
+        store_name=store_name,
+        platform=platform,
+        country=country,
+        lang=lang,
+        contact_name=contact_name,
+    )
+    notify = send_retailer_application_notify(
+        application_id=app_id,
+        store_name=store_name,
+        platform=platform,
+        country=country,
+        contact_email=contact_email,
+        contact_name=contact_name,
+        website=website,
+        has_token=bool(api_token),
+    )
+
+    if lang == "es":
+        message = (
+            f"Recibimos su solicitud ({app_id}). "
+            "Validamos el catálogo de solo lectura y le escribimos en ≤24h hábiles. Gratis para siempre."
+        )
+    else:
+        message = (
+            f"Application received ({app_id}). "
+            "We validate read-only catalog access and email you within 24 business hours. Free forever."
+        )
 
     return {
         "ok": True,
         "application_id": app_id,
         "status": "pending",
-        "message": (
-            "Application received. We validate read-only catalog access and "
-            "notify you by email within 24 hours. Free forever."
-        ),
+        "email_sent": bool(ack.get("sent")),
+        "notify_sent": bool(notify.get("sent")),
+        "message": message,
         "next_steps": [
-            "Keep your read-only API token ready (Shopify/Magento) or confirm VTEX public catalog.",
-            "Track status: hello@cli-market.dev with your application ID.",
+            "Keep your read-only API token ready (Shopify/Magento/WooCommerce) or confirm VTEX/Woo Store API public catalog.",
+            f"Track status: hello@cli-market.dev with application ID {app_id}.",
         ],
     }
 
