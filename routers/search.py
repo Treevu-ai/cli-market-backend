@@ -62,6 +62,9 @@ def _resolve_search_stores(body: SearchRequest) -> list[str]:
     stores = [s for s in stores if store_exists(s)]
     if body.line and body.line in LINES:
         stores = [s for s in stores if (get_store_profile(s) or {}).get("line") == body.line]
+    if body.country:
+        cc = body.country.strip().upper()
+        stores = [s for s in stores if STORES.get(s, {}).get("country") == cc]
     return stores
 
 
@@ -69,6 +72,7 @@ class SearchRequest(BaseModel):
     query: str
     store: str | None = None
     line: str | None = None
+    country: str | None = None
     page: int = 1
     limit: int = PAGE_SIZE
 
@@ -116,47 +120,60 @@ async def search_products(body: SearchRequest, authorization: str | None = Heade
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def _search_products(body: SearchRequest):
-    stores = _resolve_search_stores(body)
-
-    PARALLEL_BATCH = 20
-    SEARCH_TIMEOUT = float(os.getenv("SEARCH_TIMEOUT", "15.0"))
+async def _parallel_fetch_stores(
+    stores: list[str],
+    query: str,
+    page: int,
+    limit: int,
+) -> tuple[dict[str, list], list[dict]]:
+    """Fetch retailer product lists in parallel batches (shared by search + compare)."""
+    parallel_batch = 20
+    timeout_s = float(os.getenv("SEARCH_TIMEOUT", "15.0"))
+    all_raw: dict[str, list] = {}
+    errors: list[dict] = []
 
     async def fetch_one(store: str):
         try:
-            raw = await fetch_store(store, body.query, body.page, body.limit)
+            raw = await fetch_store(store, query, page, limit)
             return store, raw, None
         except Exception as e:
             return store, [], str(e)
 
-    results: list[dict] = []
-    errors: list[dict] = []
-    for i in range(0, len(stores), PARALLEL_BATCH):
-        batch = stores[i : i + PARALLEL_BATCH]
+    for i in range(0, len(stores), parallel_batch):
+        batch = stores[i : i + parallel_batch]
         batch_tasks = [fetch_one(s) for s in batch]
         try:
-            batch_results = await asyncio.wait_for(asyncio.gather(*batch_tasks), timeout=SEARCH_TIMEOUT)
+            batch_results = await asyncio.wait_for(asyncio.gather(*batch_tasks), timeout=timeout_s)
         except asyncio.TimeoutError:
-            for s in batch:
-                errors.append({"store": s, "error": "timeout"})
+            errors.extend({"store": s, "error": "timeout"} for s in batch)
             break
         except Exception as e:
-            logger.error("Search batch error: %s", e)
+            logger.error("Fetch batch error: %s", e)
             errors.append({"store": "batch", "error": str(e)})
             break
         for store, raw, err in batch_results:
             if err:
                 errors.append({"store": store, "error": err})
-                continue
-            for p in raw:
-                try:
-                    prod = product_from_json(p, store)
-                    prod["line"] = STORES[store]["line"]
-                    _line = STORES[store]["line"]
-                    prod["line_name"] = LINES.get(_line, {}).get("name", _line)
-                    results.append(prod)
-                except Exception as pe:
-                    errors.append({"store": store, "product_id": str(p)[:80], "error": str(pe)})
+            else:
+                all_raw[store] = raw
+    return all_raw, errors
+
+
+async def _search_products(body: SearchRequest):
+    stores = _resolve_search_stores(body)
+    all_raw, errors = await _parallel_fetch_stores(stores, body.query, body.page, body.limit)
+
+    results: list[dict] = []
+    for store, raw in all_raw.items():
+        for p in raw:
+            try:
+                prod = product_from_json(p, store)
+                prod["line"] = STORES[store]["line"]
+                _line = STORES[store]["line"]
+                prod["line_name"] = LINES.get(_line, {}).get("name", _line)
+                results.append(prod)
+            except Exception as pe:
+                errors.append({"store": store, "product_id": str(p)[:80], "error": str(pe)})
 
     results.sort(key=lambda p: p["price"] if p["price"] > 0 else float("inf"))
     for p in results:
@@ -191,12 +208,7 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
         except Exception:
             pass
     stores = _resolve_search_stores(body)
-    all_raw: dict[str, list] = {}
-    for store in stores:
-        try:
-            all_raw[store] = await fetch_store(store, body.query, body.page, body.limit)
-        except Exception:
-            all_raw[store] = []
+    all_raw, errors = await _parallel_fetch_stores(stores, body.query, body.page, body.limit)
 
     all_products = {}
     for s, raw in all_raw.items():
@@ -263,8 +275,13 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
     # ── Index Enrichment ──
     enrich_list(comparison)
     # ─────────────────────
-    payload = {"query": body.query, "comparison": comparison, "stores_compared": len(stores)}
-    return _attach_source_health(payload, list(stores))
+    payload: dict = {"query": body.query, "comparison": comparison, "stores_compared": len(all_raw)}
+    if body.country:
+        payload["country"] = body.country.strip().upper()
+    if errors:
+        payload["partial"] = True
+        payload["errors"] = errors
+    return _attach_source_health(payload, list(all_raw.keys()) or stores)
 
 
 @router.post("/v1/basket/compare")
