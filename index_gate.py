@@ -386,6 +386,29 @@ def backfill_canonical_product_ids(
     return stats
 
 
+def sync_golden_taxonomy_to_core() -> int:
+    """Export index Golden Record taxonomy → core enrichment_cache for indicators."""
+    try:
+        import market_core
+        from market_core.golden_taxonomy import set_taxonomy_registry
+
+        svc = _get_service()
+        products = svc.export_taxonomy_registry()
+        if not products:
+            return 0
+        db = market_core.get_db()
+        try:
+            set_taxonomy_registry(db, products, registry_size=svc.size)
+            db.commit()
+        finally:
+            db.close()
+        logger.info("Index taxonomy synced: %d golden records", len(products))
+        return len(products)
+    except Exception as exc:
+        logger.warning("sync_golden_taxonomy_to_core failed: %s", exc)
+        return 0
+
+
 def certify_round(
     products_saved: int,
     store_sample: str = "",
@@ -399,9 +422,10 @@ def certify_round(
     """
     try:
         stats = _index_recent_snapshots(limit=limit, since_minutes=since_minutes)
+        stats["taxonomy_synced"] = sync_golden_taxonomy_to_core()
         logger.info(
             "Index gate: %d prices collected → %d resolved, %d linked "
-            "(%d exact, %d fuzzy, %d auto) registry=%d store=%s",
+            "(%d exact, %d fuzzy, %d auto) registry=%d taxonomy=%d store=%s",
             products_saved,
             stats["resolved"],
             stats["linked"],
@@ -409,6 +433,7 @@ def certify_round(
             stats["fuzzy"],
             stats["auto"],
             stats["registry_size"],
+            stats.get("taxonomy_synced", 0),
             store_sample or "mixed",
         )
         return stats
