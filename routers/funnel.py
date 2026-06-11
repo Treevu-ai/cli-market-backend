@@ -150,28 +150,10 @@ def dashboard_adoption_index(
 
 @router.get("/analytics/pypi")
 def analytics_pypi_public():
-    """Public PyPI install stats via Pepy (cached server-side)."""
-    data = pepy_summary()
-    if not data.get("ok"):
-        return {
-            "ok": False,
-            "project": data.get("project"),
-            "pepy_project": data.get("pepy_project"),
-            "configured": data.get("configured", False),
-        }
-    return {
-        "ok": True,
-        "project": data["project"],
-        "pepy_project": data.get("pepy_project"),
-        "total_downloads": data.get("total_downloads"),
-        "downloads_last_24h": data.get("downloads_last_24h"),
-        "downloads_last_7d": data.get("downloads_last_7d"),
-        "downloads_last_30d": data.get("downloads_last_30d"),
-        "downloads_last_30d_no_ci": data.get("downloads_last_30d_no_ci"),
-        "top_version_30d": data.get("top_version_30d"),
-        "latest_version": data.get("latest_version"),
-        "fetched_at": data.get("fetched_at"),
-    }
+    """Public PyPI install stats (consolidated legacy + core + world)."""
+    from market_pepy import consolidated_pypi_analytics
+
+    return consolidated_pypi_analytics()
 
 
 @router.get("/dashboard/pypi")

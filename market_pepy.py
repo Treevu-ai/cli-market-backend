@@ -149,3 +149,56 @@ def pepy_summary(*, force: bool = False) -> dict[str, Any]:
     _CACHE.update(out)
     _CACHE_AT = now
     return dict(out)
+
+
+_LEGACY_PYPI = "cli-market"
+_CONSOLIDATED_PROJECTS = ("cli-market-core", "cli-market-world")
+_V2_PUBLIC_CACHE: dict[str, int] = {}
+_V2_PUBLIC_CACHE_AT: float = 0.0
+_V2_PUBLIC_TTL_S = 3600
+
+
+def _pepy_v2_public_total(project: str) -> int:
+    """Public Pepy v2 totals — no API key."""
+    global _V2_PUBLIC_CACHE_AT
+    now = time.time()
+    if _V2_PUBLIC_CACHE and now - _V2_PUBLIC_CACHE_AT < _V2_PUBLIC_TTL_S:
+        return int(_V2_PUBLIC_CACHE.get(project, 0))
+    totals: dict[str, int] = {}
+    for name in (_LEGACY_PYPI, *_CONSOLIDATED_PROJECTS):
+        try:
+            url = f"https://pepy.tech/api/v2/projects/{name}"
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "CLI-Market-Pepy/1 (+https://cli-market.dev)"},
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode())
+            totals[name] = int(data.get("total_downloads") or 0)
+        except Exception:
+            totals[name] = int(_V2_PUBLIC_CACHE.get(name, 0))
+    _V2_PUBLIC_CACHE.clear()
+    _V2_PUBLIC_CACHE.update(totals)
+    _V2_PUBLIC_CACHE_AT = now
+    return int(totals.get(project, 0))
+
+
+def consolidated_pypi_analytics(*, force: bool = False) -> dict[str, Any]:
+    """Consolidated downloads: legacy cli-market + cli-market-core + cli-market-world."""
+    _ = force
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    breakdown = {
+        "legacy": _pepy_v2_public_total(_LEGACY_PYPI),
+        "core": _pepy_v2_public_total("cli-market-core"),
+        "world": _pepy_v2_public_total("cli-market-world"),
+    }
+    total = int(breakdown["legacy"] + breakdown["core"] + breakdown["world"])
+    return {
+        "ok": total > 0,
+        "project": "consolidated (cli-market + cli-market-core + cli-market-world)",
+        "source": "pepy.tech (v2 public)",
+        "total_downloads": total,
+        "downloads_last_30d": None,
+        "breakdown": breakdown,
+        "fetched_at": fetched_at,
+    }

@@ -5,6 +5,7 @@ Endpoints:
   GET /health            Liveness check
   GET /health/collector  Collector freshness (last run, age, store coverage)
   GET /v1/sources/health Per-store scraping health (success rate + freshness)
+  GET /health/stats      Live moat KPIs + golden linkage % + sources summary
   GET /lines             Catalog of business lines with their stores
   GET /stores            Catalog of retailers (filterable by country/line)
   GET /countries         Catalog of countries with store lists
@@ -229,6 +230,26 @@ def sources_health(
     db = get_db()
     try:
         return build_sources_health(db, catalog_only=catalog_only, store=store)
+    finally:
+        db.close()
+
+
+@router.get("/health/stats")
+def health_stats():
+    """Live KPIs for landing and ops — moat freshness, linkage %, scraping summary."""
+    from market_core.health_stats import build_health_stats
+
+    registry_size = None
+    try:
+        from index_gate import registry_size as _registry_size
+
+        registry_size = _registry_size()
+    except Exception:
+        pass
+
+    db = get_db()
+    try:
+        return build_health_stats(db, registry_size=registry_size)
     finally:
         db.close()
 
