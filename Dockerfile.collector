@@ -14,8 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Railway → collector service → Variables: add GH_TOKEN (GitHub PAT, repo read on cli-market-index).
 ARG GH_TOKEN
 
+ARG CACHE_BUST=2026-06-10-release-1.9.27
 COPY requirements.txt requirements-private.txt .
 RUN set -eux; \
+    echo "cache_bust=${CACHE_BUST}"; \
     if [ -z "${GH_TOKEN}" ]; then \
       echo "error: GH_TOKEN build arg required for private cli-market-index (git+https)" >&2; \
       exit 1; \
