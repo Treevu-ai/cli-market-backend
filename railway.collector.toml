@@ -22,8 +22,8 @@ watchPatterns = [
 restartPolicyType = "ON_FAILURE"
 numReplicas = 1
 
-# Required build variable (secret) on this service:
-#   GH_TOKEN — GitHub PAT with read access to Treevu-ai/cli-market-index
+# Required build variable (secret) on this service (either name works):
+#   GITHUB_TOKEN or GH_TOKEN — GitHub PAT with repo read on Treevu-ai/cli-market-index
 #
 # Suggested runtime variables on this service:
 #   DATABASE_URL=${{Postgres.DATABASE_URL}}

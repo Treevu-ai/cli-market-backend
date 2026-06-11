@@ -11,18 +11,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # cli-market-core from PyPI; cli-market-index from private git (requirements-private.txt).
-# Railway → collector service → Variables: add GH_TOKEN (GitHub PAT, repo read on cli-market-index).
+# Railway → collector service → Variables: GITHUB_TOKEN or GH_TOKEN (PAT, repo read on cli-market-index).
+ARG GITHUB_TOKEN
 ARG GH_TOKEN
+ARG CACHE_BUST=2026-06-11-redeploy-1.9.28
 
-ARG CACHE_BUST=2026-06-10-release-1.9.28
 COPY requirements.txt requirements-private.txt .
 RUN set -eux; \
     echo "cache_bust=${CACHE_BUST}"; \
-    if [ -z "${GH_TOKEN}" ]; then \
-      echo "error: GH_TOKEN build arg required for private cli-market-index (git+https)" >&2; \
+    INDEX_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"; \
+    if [ -z "${INDEX_TOKEN}" ]; then \
+      echo "error: set GITHUB_TOKEN or GH_TOKEN on Railway for cli-market-index (git+https)" >&2; \
       exit 1; \
     fi; \
-    git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; \
+    git config --global url."https://x-access-token:${INDEX_TOKEN}@github.com/".insteadOf "https://github.com/"; \
     pip install --no-cache-dir -r requirements.txt -r requirements-private.txt; \
     playwright install chromium; \
     rm -f /root/.gitconfig
