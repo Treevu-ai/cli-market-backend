@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
+from market_connectors.sunat_invoicing import get_company, get_sunat_ruc
 from market_core import (
     db_add_to_cart,
     db_clear_cart,
@@ -112,14 +113,15 @@ def order_receipt(order_id: str, authorization: str | None = Header(None)):
         "SELECT * FROM app_order_items WHERE order_id=?", (order_id,)
     ).fetchall()
     db.close()
+    company = get_company()
     total_calc = round(sum(i["price"] * i["quantity"] for i in items), 2)
     return {
         "comprobante_id": f"SIM-{order_id}",
         "tipo": "BOLETA DE VENTA ELECTRÓNICA",
         "emisor": {
-            "razon_social": "SINAPSIS INNOVADORA S.A.C.",
-            "ruc": "20613045563",
-            "direccion": "Lima, Perú",
+            "razon_social": company["razon_social"],
+            "ruc": company["ruc"],
+            "direccion": company["direccion"],
         },
         "cliente": username,
         "orden_id": order_id,
@@ -141,7 +143,7 @@ def order_receipt(order_id: str, authorization: str | None = Header(None)):
         "moneda": "PEN",
         "nota": (
             "COMPROBANTE DE EMISIÓN MANUAL — No válido como factura electrónica SUNAT. "
-            "Para facturación oficial contacte a SINAPSIS INNOVADORA S.A.C. RUC 20613045563."
+            f"Para facturación oficial contacte a {company['razon_social']} RUC {get_sunat_ruc()}."
         ),
     }
 
