@@ -9,6 +9,7 @@ Endpoints:
   POST /admin/cron/funnel-digest  Post evening funnel digest to Slack (#funnel-cli-market)
   POST /admin/cron/command-control  Post morning founder panel (#command-control-cli-market)
   POST /admin/cron/adoption-index  Persist Adoption Index snapshot (nightly cron)
+  POST /admin/cron/indicators-refresh  Refresh moat indicators (internal + macro + Phase 2)
 
 Protected with MARKET_API_TOKEN (Bearer). Set on Railway before exposing publicly.
 """
@@ -269,6 +270,25 @@ def admin_cron_adoption_index(
     payload = compute_adoption_index(days=days, include_github=github)
     saved = persist_snapshot(payload)
     return {"ok": True, "score": payload["score"], "grade": payload["grade"], "snapshot": saved}
+
+
+@router.post("/admin/cron/indicators-refresh")
+def admin_cron_indicators_refresh(
+    authorization: str | None = Header(None),
+    country: str | None = None,
+):
+    """Refresh moat indicators across countries (nightly cron)."""
+    require_admin(authorization)
+
+    from market_indicators import refresh_after_collection, refresh_indicators
+
+    if country:
+        cc = country.upper()
+        result = refresh_indicators(country=cc, line=None)
+        return {"ok": True, "country": cc, **result}
+
+    summary = refresh_after_collection()
+    return {"ok": True, **summary}
 
 
 @router.post("/admin/cron/funnel-digest")
