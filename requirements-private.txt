@@ -1,3 +1,3 @@
 # Private git deps — not scanned by GitHub Automatic Dependency Submission.
 # Requires GITHUB_TOKEN (Railway build) or local git credentials.
-cli-market-index[postgres] @ git+https://github.com/Treevu-ai/cli-market-index@2bfa6d210fc429e1c9c7780d7df9158eb0713a66
+cli-market-index[postgres] @ git+https://github.com/Treevu-ai/cli-market-index@d7ce1b32493bd9bae242cf63f25d7f67344295a7
