@@ -47,13 +47,19 @@ def test_pepy_summary(mock_fetch):
 
 
 @patch.dict("os.environ", {}, clear=True)
-def test_analytics_pypi_unconfigured():
+def test_analytics_pypi_public_consolidated():
+    """Consolidated totals work without PEPY_API_KEY (Pepy v2 public fallback)."""
     import market_pepy as mp
 
     mp._CACHE.clear()
     mp._CACHE_AT = 0.0
+    mp._V2_PUBLIC_CACHE.clear()
+    mp._V2_PUBLIC_CACHE_AT = 0.0
     r = client.get("/analytics/pypi")
     assert r.status_code == 200
     body = r.json()
-    assert body.get("ok") is False
-    assert body.get("configured") is False
+    assert body.get("ok") is True
+    assert int(body.get("total_downloads") or 0) > 0
+    assert "consolidated" in (body.get("project") or "").lower()
+    breakdown = body.get("breakdown") or {}
+    assert breakdown.get("legacy") is not None
