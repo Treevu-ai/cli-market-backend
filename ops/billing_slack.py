@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 TIER_LABELS: dict[str, str] = {
     "pro": "CLI Market Pro ($39)",
-    "starter": "CLI Market Starter ($29)",
+    "starter": "CLI Market Starter ($24)",
     "procure_starter": "Procure Starter ($29)",
     "procure_pro": "Procure Pro ($79)",
     "procure_builder": "Procure Builder ($149)",

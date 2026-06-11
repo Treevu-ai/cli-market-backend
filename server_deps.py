@@ -231,7 +231,7 @@ def require_api_key(authorization: str | None) -> str:
 
 def require_pro(authorization: str | None) -> str:
     """Require Pro (or higher) tier for premium data endpoints."""
-    from market_billing import db_get_subscription
+    from market_billing import db_get_subscription, price_label_for_plan
 
     username = require_api_key(authorization)
     sub = db_get_subscription(username)
@@ -239,8 +239,8 @@ def require_pro(authorization: str | None) -> str:
         raise HTTPException(
             status_code=403,
             detail=(
-                "This endpoint requires CLI Market Pro ($39/mo). "
-                "Run: market upgrade  or visit /billing/paypal"
+                f"This endpoint requires CLI Market Pro ({price_label_for_plan('pro')}). "
+                "Run: market upgrade or visit /billing/pro-checkout"
             ),
         )
     return username
