@@ -26,7 +26,13 @@ jobs:
           python-version: "3.12"
 
       - name: Lint
-        run: pip install ruff && ruff check .
+        run: |
+          pip install "ruff==0.15.17"
+          if [ ! -f ruff.toml ]; then
+            echo "::error::ruff.toml missing — sync from cli-market-world ops/backend-parity/ruff.toml"
+            exit 1
+          fi
+          ruff check --config ruff.toml .
 
   test:
     runs-on: ubuntu-latest
