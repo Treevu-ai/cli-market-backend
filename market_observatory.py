@@ -1,3 +1,7 @@
-"""Shim — canonical Observatory implementation in cli-market-core."""
+"""Shim — canonical implementation in cli-market-core (``market_core.market_observatory``).
 
-from market_core.market_observatory import *  # noqa: F403
+World keeps this top-level module for backward-compatible imports
+(``from market_observatory import ObservatoryMiddleware``).
+"""
+
+from market_core.market_observatory import *  # noqa: F403,F401
