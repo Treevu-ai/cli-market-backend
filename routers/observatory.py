@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header
 
-from market_observatory import compute_daily_observatory_metrics, observatory_summary
+from market_observatory import (
+    compute_daily_observatory_metrics,
+    observatory_snapshot_streak,
+    observatory_summary,
+)
 from server_deps import require_admin
 
 router = APIRouter(tags=["observatory"])
@@ -33,3 +37,14 @@ def admin_observatory_snapshot(authorization: str | None = Header(None)):
     """Admin/cron: compute and persist daily_observatory_metrics."""
     require_admin(authorization)
     return compute_daily_observatory_metrics()
+
+
+@router.get("/admin/observatory/streak")
+def admin_observatory_streak(
+    authorization: str | None = Header(None),
+    days: int = 7,
+):
+    """Admin: consecutive daily snapshot coverage (PRD §13 acceptance)."""
+    require_admin(authorization)
+    days = max(1, min(days, 30))
+    return observatory_snapshot_streak(days=days)
