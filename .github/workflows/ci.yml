@@ -1,3 +1,5 @@
+# Canonical CI for cli-market-backend — maintained in cli-market-world.
+# Synced via ops/sync_backend_ci.sh + workflow sync-backend-ci.yml
 name: CI
 
 on:
@@ -5,40 +7,101 @@ on:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: read
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  MARKET_DATA_DIR: /tmp/market-test-data
+  DATABASE_URL: ""
+  MARKET_SKIP_LIVE: "1"
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
 
     steps:
       - uses: actions/checkout@v6
-
-      - uses: actions/checkout@v6
-        with:
-          repository: Treevu-ai/cli-market-index
-          ref: 2bfa6d210fc429e1c9c7780d7df9158eb0713a66
-          path: .deps/cli-market-index
-          token: ${{ secrets.GH_PAT }}
-
-      - uses: actions/checkout@v6
-        with:
-          repository: Treevu-ai/cli-market-core
-          ref: v1.9.28
-          path: .deps/cli-market-core
-          token: ${{ secrets.GH_PAT }}
 
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
+      - name: Lint
+        run: pip install ruff && ruff check .
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 10
+    env:
+      CI: "true"
+      GITHUB_ACTIONS: "true"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: Treevu-ai/cli-market-index
+          ref: 9d050131e9e5b16381581d1916e386f34d319ca6
+          path: .deps/cli-market-index
+          token: ${{ secrets.GH_PAT }}
+
       - name: Install dependencies
         run: |
-          pip install -e ".deps/cli-market-core"
+          pip install -r requirements.txt
           pip install -e ".deps/cli-market-index[postgres]"
-          pip install playwright python-dotenv pytest pytest-asyncio
+          pip install pytest httpx
 
       - name: Run tests
+        run: pytest tests/ -q -m "not integration"
+
+  test-pg:
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 10
+    env:
+      CI: "true"
+      GITHUB_ACTIONS: "true"
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+      MARKET_SKIP_LIVE: "1"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: Treevu-ai/cli-market-index
+          ref: 9d050131e9e5b16381581d1916e386f34d319ca6
+          path: .deps/cli-market-index
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e ".deps/cli-market-index[postgres]"
+          pip install pytest httpx
+
+      - name: Run tests against PostgreSQL
         run: pytest tests/ -q -m "not integration"
