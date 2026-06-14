@@ -63,7 +63,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install pytest httpx
-          if [ -d ".deps/cli-market-index" ]; then
+          if [ -f ".deps/cli-market-index/pyproject.toml" ]; then
             pip install -e ".deps/cli-market-index[postgres]"
           else
             echo "::warning::cli-market-index unavailable — skipping index dep (GH_PAT needs access)"
@@ -117,7 +117,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install pytest httpx
-          if [ -d ".deps/cli-market-index" ]; then
+          if [ -f ".deps/cli-market-index/pyproject.toml" ]; then
             pip install -e ".deps/cli-market-index[postgres]"
           else
             echo "::warning::cli-market-index unavailable — skipping index dep (GH_PAT needs access)"
