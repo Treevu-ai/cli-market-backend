@@ -66,8 +66,7 @@ jobs:
           if [ -f ".deps/cli-market-index/pyproject.toml" ]; then
             pip install -e ".deps/cli-market-index[postgres]"
           else
-            echo "::warning::cli-market-index checkout unavailable — installing from PyPI"
-            pip install "cli-market-index[postgres]"
+            echo "::warning::cli-market-index checkout unavailable — index enrichment will be disabled at runtime"
           fi
 
       - name: Run tests
@@ -121,8 +120,7 @@ jobs:
           if [ -f ".deps/cli-market-index/pyproject.toml" ]; then
             pip install -e ".deps/cli-market-index[postgres]"
           else
-            echo "::warning::cli-market-index checkout unavailable — installing from PyPI"
-            pip install "cli-market-index[postgres]"
+            echo "::warning::cli-market-index checkout unavailable — index enrichment will be disabled at runtime"
           fi
 
       - name: Run tests against PostgreSQL
