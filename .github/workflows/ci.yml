@@ -54,7 +54,7 @@ jobs:
           repository: Treevu-ai/cli-market-index
           ref: 9d050131e9e5b16381581d1916e386f34d319ca6
           path: .deps/cli-market-index
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_PAT_CONTENT || secrets.GH_PAT }}
 
       - name: Install dependencies
         run: |
@@ -101,7 +101,7 @@ jobs:
           repository: Treevu-ai/cli-market-index
           ref: 9d050131e9e5b16381581d1916e386f34d319ca6
           path: .deps/cli-market-index
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_PAT_CONTENT || secrets.GH_PAT }}
 
       - name: Install dependencies
         run: |
