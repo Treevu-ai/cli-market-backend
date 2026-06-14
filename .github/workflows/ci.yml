@@ -49,18 +49,25 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: actions/checkout@v6
+      - name: Checkout cli-market-index
+        id: checkout-index
+        continue-on-error: true
+        uses: actions/checkout@v6
         with:
           repository: Treevu-ai/cli-market-index
           ref: 9d050131e9e5b16381581d1916e386f34d319ca6
           path: .deps/cli-market-index
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_PAT_CONTENT || secrets.GH_PAT }}
 
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install -e ".deps/cli-market-index[postgres]"
           pip install pytest httpx
+          if [ -f ".deps/cli-market-index/pyproject.toml" ]; then
+            pip install -e ".deps/cli-market-index[postgres]"
+          else
+            echo "::warning::cli-market-index checkout unavailable — index enrichment will be disabled at runtime"
+          fi
 
       - name: Run tests
         run: pytest tests/ -q -m "not integration"
@@ -96,18 +103,25 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: actions/checkout@v6
+      - name: Checkout cli-market-index
+        id: checkout-index-pg
+        continue-on-error: true
+        uses: actions/checkout@v6
         with:
           repository: Treevu-ai/cli-market-index
           ref: 9d050131e9e5b16381581d1916e386f34d319ca6
           path: .deps/cli-market-index
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_PAT_CONTENT || secrets.GH_PAT }}
 
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install -e ".deps/cli-market-index[postgres]"
           pip install pytest httpx
+          if [ -f ".deps/cli-market-index/pyproject.toml" ]; then
+            pip install -e ".deps/cli-market-index[postgres]"
+          else
+            echo "::warning::cli-market-index checkout unavailable — index enrichment will be disabled at runtime"
+          fi
 
       - name: Run tests against PostgreSQL
         run: pytest tests/ -q -m "not integration"

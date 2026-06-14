@@ -6,6 +6,22 @@ from pathlib import Path
 
 import pytest
 
+try:
+    from services.index_service import IndexService as _IndexService  # noqa: F401
+    _INDEX_AVAILABLE = True
+except ImportError:
+    _INDEX_AVAILABLE = False
+
+
+def pytest_collection_modifyitems(items: list) -> None:
+    if _INDEX_AVAILABLE:
+        return
+    skip = pytest.mark.skip(reason="cli-market-index not installed — skipping index tests")
+    index_files = {"test_index_api.py", "test_index_gate.py"}
+    for item in items:
+        if Path(item.fspath).name in index_files:
+            item.add_marker(skip)
+
 
 @pytest.fixture
 def isolated_db(monkeypatch, tmp_path):

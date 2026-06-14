@@ -15,8 +15,17 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from persistence.factory import create_store
-from services.index_service import IndexService
+try:
+    from persistence.factory import create_store
+    from services.index_service import IndexService
+    _INDEX_AVAILABLE = True
+except ImportError:
+    create_store = None  # type: ignore[assignment]
+    IndexService = None  # type: ignore[assignment,misc]
+    _INDEX_AVAILABLE = False
+    logging.getLogger("market.index_gate").warning(
+        "cli-market-index not installed — index enrichment disabled"
+    )
 
 from price_snapshots_schema import ensure_canonical_product_id_column
 
@@ -39,8 +48,10 @@ def _bootstrap_index_env() -> None:
         )
 
 
-def _get_service() -> IndexService:
+def _get_service() -> "IndexService":
     global _service
+    if not _INDEX_AVAILABLE:
+        raise RuntimeError("cli-market-index is not installed — index enrichment unavailable")
     if _service is None:
         _bootstrap_index_env()
         if os.getenv("INDEX_PERSISTENCE", "1").strip().lower() in ("0", "false", "no"):

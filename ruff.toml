@@ -1,0 +1,26 @@
+# Canonical ruff config for cli-market-backend — maintained in cli-market-world.
+# CI runs: ruff check --config ruff.toml .  (required — do not rely on pyproject.toml alone)
+line-length = 120
+target-version = "py310"
+extend-exclude = [
+    "landing/",
+    ".market/",
+    "dist/",
+    "build/",
+    "*.egg-info/",
+    "docs/financial-services/",
+    ".deps/",
+]
+
+[lint]
+select = ["F", "E9", "W6", "B"]
+ignore = ["B008", "B904"]
+
+[lint.per-file-ignores]
+"tests/*" = ["E402", "F401", "E741"]
+"market_server.py" = ["E402"]
+"collect_prices.py" = ["E401", "E701", "E702", "E722", "E731"]
+"market_cli.py" = ["E701", "E731"]
+"pre_checkout_validate.py" = ["E731"]
+"ops/*" = ["F401", "E402"]
+"routers/*.py" = ["F401"]
