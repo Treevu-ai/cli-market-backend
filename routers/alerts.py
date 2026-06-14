@@ -136,13 +136,13 @@ def delete_alert(alert_id: str, authorization: str | None = Header(None)):
 
 
 @router.put("/v1/alerts/{alert_id}/toggle")
-def toggle_alert(alert_id: str, body: dict = {}, authorization: str | None = Header(None)):
+def toggle_alert(alert_id: str, body: dict | None = None, authorization: str | None = Header(None)):
     """Enable or disable a price alert. Pass {\"active\": true/false} in body."""
     username = require_api_key(authorization)
     alert = db_get_alert(alert_id)
     if not alert or alert.get("username") != username:
         raise HTTPException(status_code=404, detail="Alert not found or not yours")
-    active = bool(body.get("active", not alert.get("active", True)))
+    active = bool((body or {}).get("active", not alert.get("active", True)))
     updated = db_toggle_alert(username, alert_id, active)
     return {"ok": True, "alert": updated}
 
