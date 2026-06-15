@@ -159,13 +159,15 @@ def _rpc_err(code: int, message: str, req_id) -> dict:
 
 
 @router.post("/mcp")
-async def mcp_http(request: Request, authorization: str | None = Header(None)):
+async def mcp_http(request: Request, authorization: str | None = Header(None), token: str | None = None):
     """HTTP MCP endpoint — JSON-RPC 2.0 over POST.
 
     Add to claude.ai as:
-      URL: https://cli-market-production.up.railway.app/mcp
-      Auth: Bearer <your-market-api-token>
+      URL: https://cli-market-production.up.railway.app/mcp?token=<your-market-api-token>
+      (claude.ai connectors don't support Bearer auth — use the token query param instead)
     """
+    # Accept token from Authorization header OR ?token= query param (for claude.ai connectors)
+    effective_auth = authorization or (f"Bearer {token}" if token else None)
     try:
         body = await request.json()
     except Exception:
@@ -203,15 +205,15 @@ async def mcp_http(request: Request, authorization: str | None = Header(None)):
         tool_name = params.get("name", "")
         tool_args = params.get("arguments", {})
 
-        # Validate auth
-        if not authorization:
-            return JSONResponse(_rpc_err(-32001, "Authorization header required (Bearer token)", req_id), status_code=401)
+        # Validate auth (Bearer header or ?token= query param)
+        if not effective_auth:
+            return JSONResponse(_rpc_err(-32001, "Auth required: Authorization header or ?token= query param", req_id), status_code=401)
         try:
-            token = require_api_key(authorization)
+            api_token = require_api_key(effective_auth)
         except Exception:
             return JSONResponse(_rpc_err(-32001, "Invalid or expired API token", req_id), status_code=401)
 
-        result = await _call_tool(tool_name, tool_args, token)
+        result = await _call_tool(tool_name, tool_args, api_token)
 
         if "error" in result:
             return JSONResponse(_rpc_ok({
