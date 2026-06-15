@@ -131,12 +131,12 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
         elif name == "market_compare":
             r = await client.post(f"{_API_BASE}/products/compare", json=args, headers=headers)
         elif name == "market_inflation":
-            r = await client.get(f"{_API_BASE}/intel/inflation", params={"country": args.get("country")}, headers=headers)
+            r = await client.get(f"{_API_BASE}/v1/intel/inflation", params={"country": args.get("country")}, headers=headers)
         elif name == "market_scores":
-            r = await client.get(f"{_API_BASE}/intel/scores", params={"country": args.get("country")}, headers=headers)
+            r = await client.get(f"{_API_BASE}/v1/intel/scores", params={"country": args.get("country")}, headers=headers)
         elif name == "market_trending":
             params = {k: v for k, v in args.items() if v is not None}
-            r = await client.get(f"{_API_BASE}/products/trending", params=params, headers=headers)
+            r = await client.get(f"{_API_BASE}/analytics/trending", params=params, headers=headers)
         elif name == "market_stores":
             params = {k: v for k, v in args.items() if v is not None}
             r = await client.get(f"{_API_BASE}/stores", params=params, headers=headers)
