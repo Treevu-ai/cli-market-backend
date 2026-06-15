@@ -476,13 +476,14 @@ def _dashboard_data():
     # ── Top discounts (public: sane retail range only) ───────────────────────
     top_discounts = db.execute(
         """
-        SELECT name, store_name, price, list_price, discount_pct, currency, line_name
+        SELECT name, store, store_name, price, list_price, discount_pct, currency, line_name
         FROM (
-            SELECT name, store_name, price, list_price,
+            SELECT name, store, store_name, price, list_price,
                    ROUND(((1 - price / NULLIF(list_price,0)) * 100)::numeric) as discount_pct,
                    currency, line_name
             FROM price_snapshots
             WHERE list_price > price AND price > 0 AND list_price < 999999
+              AND SUBSTR(store, LENGTH(store) - 2) != '_br'
         ) discounted
         WHERE discount_pct BETWEEN 5 AND 80
         ORDER BY discount_pct DESC LIMIT 10
