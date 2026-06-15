@@ -182,6 +182,7 @@ from routers.payments import router as payments_router
 from routers.public_demo import router as public_demo_router
 from routers.retailers import router as retailers_router
 from routers.retailer_admin import router as retailer_admin_router
+from routers.discovery import router as discovery_router
 from routers.search import router as search_router
 
 # Order doesn't matter functionally — each router declares its own paths.
@@ -196,6 +197,7 @@ for r in (
     dashboard_router,
     data_v1_router,
     data_export_router,
+    discovery_router,
     funnel_router,
     observatory_router,
     health_router,
