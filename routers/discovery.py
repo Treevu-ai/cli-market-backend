@@ -257,12 +257,68 @@ _TOOLS_OPENAPI = {
 }
 
 
+def _make_spec(title: str, description: str, paths: dict) -> dict:
+    return {
+        "openapi": "3.1.0",
+        "info": {
+            "title": title,
+            "description": description,
+            "version": PACKAGE_VERSION,
+            "contact": {"email": "acuba0103@gmail.com", "url": _WEBSITE},
+            "license": {"name": "MIT"},
+        },
+        "servers": [{"url": _API_BASE}],
+        "security": [{"bearerAuth": []}],
+        "components": {"securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}}},
+        "paths": paths,
+    }
+
+
 @router.get("/tools/openapi.json", include_in_schema=False)
 def tools_openapi():
-    """Curated OpenAPI spec for the 6 core agent tools.
-    Used by ChatGPT Actions, Perplexity, and OpenAI-compatible agents.
-    """
+    """Full curated OpenAPI spec — all 6 core agent tools."""
     return JSONResponse(content=_TOOLS_OPENAPI)
+
+
+@router.get("/tools/openapi-shop.json", include_in_schema=False)
+def tools_openapi_shop():
+    """OpenAPI spec for the Shop bundle — search, compare, cart, checkout."""
+    shop_paths = {k: v for k, v in _TOOLS_OPENAPI["paths"].items()
+                  if k in ("/products/search", "/products/compare", "/products/trending")}
+    return JSONResponse(content=_make_spec(
+        "CLI Market — Shopper Agent",
+        (f"Search and compare prices across {RETAILERS_VERIFIED} LATAM retailers. "
+         "Find the best price for any product across Peru, Argentina, Brazil, Mexico, Colombia, Chile. "
+         "Real-time data, updated every 4 hours."),
+        shop_paths,
+    ))
+
+
+@router.get("/tools/openapi-intel.json", include_in_schema=False)
+def tools_openapi_intel():
+    """OpenAPI spec for the Intel bundle — inflation, scores, stats, export."""
+    intel_paths = {k: v for k, v in _TOOLS_OPENAPI["paths"].items()
+                   if k in ("/intel/inflation", "/intel/scores", "/products/trending", "/stores")}
+    return JSONResponse(content=_make_spec(
+        "CLI Market — Market Intel Agent",
+        ("LATAM retail market intelligence for analysts and fintechs. "
+         "Real-time inflation signals, basket stress index, retail aggression scores, "
+         "and commodity price trends across 8 countries."),
+        intel_paths,
+    ))
+
+
+@router.get("/tools/openapi-account.json", include_in_schema=False)
+def tools_openapi_account():
+    """OpenAPI spec for the Account bundle — stores, countries, product search."""
+    account_paths = {k: v for k, v in _TOOLS_OPENAPI["paths"].items()
+                     if k in ("/stores", "/products/search")}
+    return JSONResponse(content=_make_spec(
+        "CLI Market — Retailer Explorer",
+        (f"Explore CLI Market's {RETAILERS_VERIFIED} indexed retailers across 8 countries. "
+         "Find which retailers operate in a country, search their catalogs, and understand coverage."),
+        account_paths,
+    ))
 
 
 @router.get("/tools", include_in_schema=False)
