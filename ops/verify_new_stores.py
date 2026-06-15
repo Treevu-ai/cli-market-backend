@@ -233,7 +233,7 @@ def main() -> None:
         print("\nNingún store pasó la verificación — no se habilita nada.")
     else:
         if passing and any(k in PENDING_STORES for k in passing):
-            print(f"\nPara habilitar los que pasan: python3 ops/verify_new_stores.py --enable")
+            print("\nPara habilitar los que pasan: python3 ops/verify_new_stores.py --enable")
 
     print()
 
