@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header
 
-from market_core import get_db
+from market_core import STORES, get_db
 from market_indicators import get_indicator_catalog, get_latest_values
 from server_deps import require_api_key
 from index_gate import enrich_list
@@ -85,9 +85,18 @@ def analytics_trending(country: str | None = None, line: str | None = None, limi
         "FROM price_snapshots WHERE price > 0"
     )
     params: list = []
-    # NOTE: country filter is currently a no-op (the original code had a bug).
-    # When we wire it up properly, follow the same pattern as
-    # /v1/data/export — translate country → store list via STORES.
+    if country:
+        country_stores = [
+            s for s, sv in STORES.items()
+            if sv.get("country", "").upper() == country.upper()
+        ]
+        if country_stores:
+            placeholders = ",".join("?" * len(country_stores))
+            q += f" AND store IN ({placeholders})"
+            params.extend(country_stores)
+        else:
+            db.close()
+            return {"trending": [], "total": 0, "filter": {"country": country}}
     if line:
         q += " AND line = ?"
         params.append(line)
