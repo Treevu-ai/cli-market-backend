@@ -326,3 +326,57 @@ def tools_redirect():
     """Redirect to cli-market.dev/tools — the human-readable tool directory."""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url=f"{_WEBSITE}/tools", status_code=301)
+
+
+@router.get("/privacy", include_in_schema=False)
+def privacy_policy():
+    """Privacy policy — required for ChatGPT plugin/GPT Action registration."""
+    from fastapi.responses import HTMLResponse
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>CLI Market — Privacy Policy</title>
+<style>body{font-family:sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333}
+h1{color:#111}h2{margin-top:2em}a{color:#0066cc}</style></head>
+<body>
+<h1>CLI Market — Privacy Policy</h1>
+<p><strong>Last updated:</strong> June 2026</p>
+
+<h2>1. What we collect</h2>
+<p>CLI Market collects the minimum data necessary to provide the service:</p>
+<ul>
+  <li><strong>Account data:</strong> email address and username at registration</li>
+  <li><strong>API usage:</strong> search queries, timestamps, and request counts (for rate limiting and billing)</li>
+  <li><strong>No personal shopping data is stored</strong> beyond what is needed to process your request</li>
+</ul>
+
+<h2>2. What we do NOT collect</h2>
+<ul>
+  <li>We do not collect payment card data (processed by PayPal/Stripe)</li>
+  <li>We do not sell data to third parties</li>
+  <li>We do not track users across third-party websites</li>
+</ul>
+
+<h2>3. Retail price data</h2>
+<p>CLI Market indexes publicly available retail prices from e-commerce websites via their public APIs.
+No personal consumer data from retailers is collected or stored.</p>
+
+<h2>4. AI agent usage</h2>
+<p>When CLI Market tools are called by AI agents (via MCP or ChatGPT Actions), the search query
+and country parameter are logged for rate limiting purposes. These logs are retained for 30 days.</p>
+
+<h2>5. Data retention</h2>
+<ul>
+  <li>Price data: retained indefinitely (product of the service)</li>
+  <li>API logs: 30 days</li>
+  <li>Account data: until account deletion</li>
+</ul>
+
+<h2>6. Your rights</h2>
+<p>You may request deletion of your account and associated data by emailing
+<a href="mailto:acuba0103@gmail.com">acuba0103@gmail.com</a>.</p>
+
+<h2>7. Contact</h2>
+<p>Ricardo Cuba — <a href="mailto:acuba0103@gmail.com">acuba0103@gmail.com</a><br>
+<a href="https://cli-market.dev">cli-market.dev</a></p>
+</body></html>"""
+    return HTMLResponse(content=html)
