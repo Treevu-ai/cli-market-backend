@@ -47,14 +47,15 @@ ACTIVE_STORES = {
     "devoto_uy":         {"name": "Devoto",           "base": "https://www.devoto.com.uy",        "platform": "vtex", "country": "UY"},
 }
 
-VTEX_SEARCH_PATH = "/api/catalog_system/pub/products/search?_from=0&_to=3&O=OrderByTopSaleDESC"
+VTEX_SEARCH_BASE = "/api/catalog_system/pub/products/search"
+VTEX_SEARCH_TERM = "leche"  # common staple present in all LatAm VTEX stores
 TIMEOUT = 12.0
 
 MARKET_STORES_PATH = Path(__file__).resolve().parent.parent.parent / "cli-market-core" / "market_core" / "market_stores.py"
 
 
 def check_vtex(store_key: str, info: dict, client: httpx.Client) -> dict:
-    url = info["base"].rstrip("/") + VTEX_SEARCH_PATH
+    url = info["base"].rstrip("/") + f"{VTEX_SEARCH_BASE}/{VTEX_SEARCH_TERM}?_from=0&_to=3"
     result = {
         "store_key": store_key,
         "name": info["name"],
