@@ -257,12 +257,68 @@ _TOOLS_OPENAPI = {
 }
 
 
+def _make_spec(title: str, description: str, paths: dict) -> dict:
+    return {
+        "openapi": "3.1.0",
+        "info": {
+            "title": title,
+            "description": description,
+            "version": PACKAGE_VERSION,
+            "contact": {"email": "acuba0103@gmail.com", "url": _WEBSITE},
+            "license": {"name": "MIT"},
+        },
+        "servers": [{"url": _API_BASE}],
+        "security": [{"bearerAuth": []}],
+        "components": {"securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}}},
+        "paths": paths,
+    }
+
+
 @router.get("/tools/openapi.json", include_in_schema=False)
 def tools_openapi():
-    """Curated OpenAPI spec for the 6 core agent tools.
-    Used by ChatGPT Actions, Perplexity, and OpenAI-compatible agents.
-    """
+    """Full curated OpenAPI spec — all 6 core agent tools."""
     return JSONResponse(content=_TOOLS_OPENAPI)
+
+
+@router.get("/tools/openapi-shop.json", include_in_schema=False)
+def tools_openapi_shop():
+    """OpenAPI spec for the Shop bundle — search, compare, cart, checkout."""
+    shop_paths = {k: v for k, v in _TOOLS_OPENAPI["paths"].items()
+                  if k in ("/products/search", "/products/compare", "/products/trending")}
+    return JSONResponse(content=_make_spec(
+        "CLI Market — Shopper Agent",
+        (f"Search and compare prices across {RETAILERS_VERIFIED} LATAM retailers. "
+         "Find the best price for any product across Peru, Argentina, Brazil, Mexico, Colombia, Chile. "
+         "Real-time data, updated every 4 hours."),
+        shop_paths,
+    ))
+
+
+@router.get("/tools/openapi-intel.json", include_in_schema=False)
+def tools_openapi_intel():
+    """OpenAPI spec for the Intel bundle — inflation, scores, stats, export."""
+    intel_paths = {k: v for k, v in _TOOLS_OPENAPI["paths"].items()
+                   if k in ("/intel/inflation", "/intel/scores", "/products/trending", "/stores")}
+    return JSONResponse(content=_make_spec(
+        "CLI Market — Market Intel Agent",
+        ("LATAM retail market intelligence for analysts and fintechs. "
+         "Real-time inflation signals, basket stress index, retail aggression scores, "
+         "and commodity price trends across 8 countries."),
+        intel_paths,
+    ))
+
+
+@router.get("/tools/openapi-account.json", include_in_schema=False)
+def tools_openapi_account():
+    """OpenAPI spec for the Account bundle — stores, countries, product search."""
+    account_paths = {k: v for k, v in _TOOLS_OPENAPI["paths"].items()
+                     if k in ("/stores", "/products/search")}
+    return JSONResponse(content=_make_spec(
+        "CLI Market — Retailer Explorer",
+        (f"Explore CLI Market's {RETAILERS_VERIFIED} indexed retailers across 8 countries. "
+         "Find which retailers operate in a country, search their catalogs, and understand coverage."),
+        account_paths,
+    ))
 
 
 @router.get("/tools", include_in_schema=False)
@@ -270,3 +326,57 @@ def tools_redirect():
     """Redirect to cli-market.dev/tools — the human-readable tool directory."""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url=f"{_WEBSITE}/tools", status_code=301)
+
+
+@router.get("/privacy", include_in_schema=False)
+def privacy_policy():
+    """Privacy policy — required for ChatGPT plugin/GPT Action registration."""
+    from fastapi.responses import HTMLResponse
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>CLI Market — Privacy Policy</title>
+<style>body{font-family:sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333}
+h1{color:#111}h2{margin-top:2em}a{color:#0066cc}</style></head>
+<body>
+<h1>CLI Market — Privacy Policy</h1>
+<p><strong>Last updated:</strong> June 2026</p>
+
+<h2>1. What we collect</h2>
+<p>CLI Market collects the minimum data necessary to provide the service:</p>
+<ul>
+  <li><strong>Account data:</strong> email address and username at registration</li>
+  <li><strong>API usage:</strong> search queries, timestamps, and request counts (for rate limiting and billing)</li>
+  <li><strong>No personal shopping data is stored</strong> beyond what is needed to process your request</li>
+</ul>
+
+<h2>2. What we do NOT collect</h2>
+<ul>
+  <li>We do not collect payment card data (processed by PayPal/Stripe)</li>
+  <li>We do not sell data to third parties</li>
+  <li>We do not track users across third-party websites</li>
+</ul>
+
+<h2>3. Retail price data</h2>
+<p>CLI Market indexes publicly available retail prices from e-commerce websites via their public APIs.
+No personal consumer data from retailers is collected or stored.</p>
+
+<h2>4. AI agent usage</h2>
+<p>When CLI Market tools are called by AI agents (via MCP or ChatGPT Actions), the search query
+and country parameter are logged for rate limiting purposes. These logs are retained for 30 days.</p>
+
+<h2>5. Data retention</h2>
+<ul>
+  <li>Price data: retained indefinitely (product of the service)</li>
+  <li>API logs: 30 days</li>
+  <li>Account data: until account deletion</li>
+</ul>
+
+<h2>6. Your rights</h2>
+<p>You may request deletion of your account and associated data by emailing
+<a href="mailto:acuba0103@gmail.com">acuba0103@gmail.com</a>.</p>
+
+<h2>7. Contact</h2>
+<p>Ricardo Cuba — <a href="mailto:acuba0103@gmail.com">acuba0103@gmail.com</a><br>
+<a href="https://cli-market.dev">cli-market.dev</a></p>
+</body></html>"""
+    return HTMLResponse(content=html)
