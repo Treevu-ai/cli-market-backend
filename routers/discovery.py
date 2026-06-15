@@ -208,7 +208,7 @@ _TOOLS_OPENAPI = {
                 "responses": {"200": {"description": "Cross-store price comparison"}},
             }
         },
-        "/intel/inflation": {
+        "/v1/intel/inflation": {
             "get": {
                 "operationId": "market_inflation",
                 "summary": "Get real-time inflation and basket stress data",
@@ -219,7 +219,7 @@ _TOOLS_OPENAPI = {
                 "responses": {"200": {"description": "Inflation and basket stress data"}},
             }
         },
-        "/intel/scores": {
+        "/v1/intel/scores": {
             "get": {
                 "operationId": "market_scores",
                 "summary": "Get market intelligence scores for a country",
@@ -230,7 +230,7 @@ _TOOLS_OPENAPI = {
                 "responses": {"200": {"description": "Market intelligence scores (0-100)"}},
             }
         },
-        "/products/trending": {
+        "/analytics/trending": {
             "get": {
                 "operationId": "market_trending",
                 "summary": "Get trending products by country",
@@ -287,7 +287,7 @@ def tools_openapi():
 def tools_openapi_shop():
     """OpenAPI spec for the Shop bundle — search, compare, cart, checkout."""
     shop_paths = {k: v for k, v in _TOOLS_OPENAPI["paths"].items()
-                  if k in ("/products/search", "/products/compare", "/products/trending")}
+                  if k in ("/products/search", "/products/compare", "/analytics/trending")}
     return JSONResponse(content=_make_spec(
         "CLI Market — Shopper Agent",
         (f"Search and compare prices across {RETAILERS_VERIFIED} LATAM retailers. "
@@ -301,7 +301,7 @@ def tools_openapi_shop():
 def tools_openapi_intel():
     """OpenAPI spec for the Intel bundle — inflation, scores, stats, export."""
     intel_paths = {k: v for k, v in _TOOLS_OPENAPI["paths"].items()
-                   if k in ("/intel/inflation", "/intel/scores", "/products/trending", "/stores")}
+                   if k in ("/v1/intel/inflation", "/v1/intel/scores", "/analytics/trending", "/stores")}
     return JSONResponse(content=_make_spec(
         "CLI Market — Market Intel Agent",
         ("LATAM retail market intelligence for analysts and fintechs. "
