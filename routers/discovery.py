@@ -269,7 +269,10 @@ def _make_spec(title: str, description: str, paths: dict) -> dict:
         },
         "servers": [{"url": _API_BASE}],
         "security": [{"bearerAuth": []}],
-        "components": {"securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}}},
+        "components": {
+        "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}},
+        "schemas": {},
+    },
         "paths": paths,
     }
 
