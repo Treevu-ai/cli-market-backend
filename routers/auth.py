@@ -7,6 +7,8 @@ Endpoints:
   GET    /auth/keys               List user's API keys (prefix only, no secret)
   DELETE /auth/keys/{key_id}      Revoke an API key
   GET    /auth/subscription       Current tier + limits
+  POST   /auth/referral           Register/refresh a referral code (install tracking)
+  GET    /auth/referral/stats     Referral stats for the authenticated user
 """
 
 from __future__ import annotations
@@ -186,3 +188,70 @@ def get_subscription(authorization: str | None = Header(None)):
     sub = db_get_subscription(username)
     keys = db_list_api_keys(username)
     return {"username": username, "subscription": sub, "api_keys": len(keys)}
+
+
+class ReferralRegisterRequest(BaseModel):
+    ref_code: str
+
+
+@router.post("/auth/referral")
+def referral_register(body: ReferralRegisterRequest, authorization: str | None = Header(None)):
+    """Register or refresh a user's referral code.
+
+    Idempotent: calling again with the same code is a no-op;
+    calling with a new code replaces the old one.
+    """
+    from market_core import get_db
+    username = ""
+    try:
+        username = require_user(authorization)
+    except HTTPException:
+        pass  # anonymous installs are tracked without a username
+
+    code = (body.ref_code or "").strip()[:16]
+    if not code:
+        raise HTTPException(status_code=422, detail="ref_code is required")
+
+    db = get_db()
+    try:
+        db.execute(
+            """
+            INSERT INTO referral_codes (ref_code, username, install_count, activated_count)
+            VALUES (?, ?, 1, 0)
+            ON CONFLICT(ref_code) DO UPDATE SET install_count = install_count + 1
+            """,
+            [code, username],
+        )
+        db.commit()
+        row = db.execute(
+            "SELECT ref_code, username, install_count, activated_count, created_at FROM referral_codes WHERE ref_code = ?",
+            [code],
+        ).fetchone()
+        if row:
+            return dict(row)
+        return {"ref_code": code, "username": username, "install_count": 1}
+    finally:
+        db.close()
+
+
+@router.get("/auth/referral/stats")
+def referral_stats(authorization: str | None = Header(None)):
+    """Return referral stats for the authenticated user."""
+    from market_core import get_db
+    username = require_user(authorization)
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT ref_code, install_count, activated_count, created_at FROM referral_codes WHERE username = ? ORDER BY install_count DESC",
+            [username],
+        ).fetchall()
+        total_installs = sum(r["install_count"] for r in rows)
+        total_activated = sum(r["activated_count"] for r in rows)
+        return {
+            "username": username,
+            "total_installs": total_installs,
+            "total_activated": total_activated,
+            "codes": [dict(r) for r in rows],
+        }
+    finally:
+        db.close()
