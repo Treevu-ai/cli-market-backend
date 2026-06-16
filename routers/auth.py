@@ -17,7 +17,7 @@ import logging
 import os
 import uuid
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Body, Header, HTTPException
 from pydantic import BaseModel
 
 from market_core import (
@@ -61,8 +61,12 @@ class RefreshRequest(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/auth/register")
-def register():
-    """Create a new API key. Public endpoint — rate limited."""
+def register(ref_code: str | None = Body(default=None, embed=True)):
+    """Create a new API key. Public endpoint — rate limited.
+
+    Optional `ref_code` credits the referrer (see
+    market_billing.apply_referral_activation) when this is a referred signup.
+    """
     check_rate_limit("auth")
     username = f"user-{uuid.uuid4().hex[:12]}"
     # Random password — access is via sk- API key, not password login.
@@ -74,6 +78,12 @@ def register():
         record_funnel_event("register", username=username, dedupe=True)
     except Exception:
         logger.debug("record_funnel_event(register) failed", exc_info=True)
+    if ref_code:
+        try:
+            from market_billing import apply_referral_activation
+            apply_referral_activation(ref_code, username)
+        except Exception:
+            logger.debug("apply_referral_activation failed", exc_info=True)
     return {
         "username": username,
         "api_key": result["key"],
