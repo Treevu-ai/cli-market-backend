@@ -11,6 +11,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 
@@ -36,6 +37,7 @@ from server_deps import (
 )
 
 router = APIRouter(tags=["auth"])
+logger = logging.getLogger("market.server").getChild("auth")
 
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -69,7 +71,7 @@ def register():
         from market_funnel import record_funnel_event
         record_funnel_event("register", username=username, dedupe=True)
     except Exception:
-        pass
+        logger.debug("record_funnel_event(register) failed", exc_info=True)
     return {
         "username": username,
         "api_key": result["key"],
@@ -100,7 +102,7 @@ def login(body: LoginRequest):
         from market_funnel import record_funnel_event
         record_funnel_event("login", username=body.username, dedupe=False)
     except Exception:
-        pass
+        logger.debug("record_funnel_event(login) failed", exc_info=True)
     return {"message": "Autenticado", "username": body.username, **tokens}
 
 

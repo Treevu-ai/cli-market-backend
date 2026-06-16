@@ -194,12 +194,16 @@ async def _handle_paypal_event(event: dict) -> dict:
                 try:
                     db_record_promo_redemption(username, FOUNDING_PROMO_CODE, plan_slug)
                 except Exception:
-                    pass
+                    logger.warning(
+                        "db_record_promo_redemption failed for %s (%s)", username, plan_slug, exc_info=True
+                    )
             elif plan_slug == "pro_annual":
                 try:
                     db_record_promo_redemption(username, "pro_annual", plan_slug)
                 except Exception:
-                    pass
+                    logger.warning(
+                        "db_record_promo_redemption failed for %s (%s)", username, plan_slug, exc_info=True
+                    )
             try:
                 from market_funnel import record_funnel_event
 
@@ -211,7 +215,7 @@ async def _handle_paypal_event(event: dict) -> dict:
                     dedupe=True,
                 )
             except Exception:
-                pass
+                logger.debug("record_funnel_event(%s) failed", funnel_event, exc_info=True)
             try:
                 from market_core import db_create_api_key, db_get_user_email
                 key_data = db_create_api_key(username, "read_write", target_tier)
@@ -546,7 +550,7 @@ def process_pro_subscription_request(
         from market_funnel import record_funnel_event
         record_funnel_event("request_pro", username=username or None, meta={"email": email}, dedupe=False)
     except Exception:
-        pass
+        logger.debug("record_funnel_event(request_pro) failed", exc_info=True)
     req = db_create_subscription_request(username, email, PRO_PAYMENT_URL)
     sub_mail = send_pro_payment_email(
         to_email=email,
