@@ -379,6 +379,7 @@ def get_feedback_queries(db) -> list[tuple[str, str]]:
                 LIMIT ?
             """, (line, since, FEEDBACK_MIN_COUNT, per_line + 2)).fetchall()
         except Exception:
+            logger.debug("feedback query failed for line=%s", line, exc_info=True)
             continue
         for r in rows:
             name = str(r["name"]).strip().lower()

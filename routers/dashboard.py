@@ -831,7 +831,10 @@ def _dashboard_data():
             ).fetchall()
             confidence_dist = {r["confidence"]: r["n"] for r in conf_rows}
     except Exception:
-        pass
+        import logging
+        logging.getLogger("market.server").getChild("dashboard").debug(
+            "confidence_dist computation failed", exc_info=True
+        )
 
     indicator_latest: list[dict] = []
     enrichment_latest: list[dict] = []
@@ -848,7 +851,10 @@ def _dashboard_data():
             indicator_by_country[cc] = cc_vals
         indicator_latest = get_latest_values(db, limit=200)
     except Exception:
-        pass
+        import logging
+        logging.getLogger("market.server").getChild("dashboard").debug(
+            "indicator/enrichment fetch failed", exc_info=True
+        )
 
     db.close()
 

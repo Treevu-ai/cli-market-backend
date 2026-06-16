@@ -5,6 +5,7 @@ Read-only gate invoked before creating pending orders. Does not touch collector.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -12,6 +13,8 @@ from typing import Any
 
 from market_core import db_get_subscription, user_can_checkout
 from price_snapshots_schema import ensure_canonical_product_id_column, price_snapshots_has_canonical_id
+
+logger = logging.getLogger("market.server").getChild("pre_checkout_validate")
 
 
 def _env_int(name: str, default: int) -> int:
@@ -102,7 +105,7 @@ def _resolve_prod_id(item: dict, snapshot: dict | None) -> str | None:
         if resolved.get("resolved") and resolved.get("product"):
             return resolved["product"].get("id")
     except Exception:
-        pass
+        logger.debug("index_resolve failed for item=%s", item.get("name", ""), exc_info=True)
     return None
 
 
@@ -333,4 +336,4 @@ def _record_validate_event(
             dedupe=False,
         )
     except Exception:
-        pass
+        logger.debug("record_funnel_event(checkout_validate) failed", exc_info=True)
