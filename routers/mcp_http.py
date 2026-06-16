@@ -209,11 +209,13 @@ async def mcp_http(request: Request, authorization: str | None = Header(None), t
         if not effective_auth:
             return JSONResponse(_rpc_err(-32001, "Auth required: Authorization header or ?token= query param", req_id), status_code=401)
         try:
-            api_token = require_api_key(effective_auth)
+            require_api_key(effective_auth)  # validate only — raises on invalid/expired
         except Exception:
             return JSONResponse(_rpc_err(-32001, "Invalid or expired API token", req_id), status_code=401)
 
-        result = await _call_tool(tool_name, tool_args, api_token)
+        # Pass the raw token (UUID) to _call_tool — not the username returned by require_api_key
+        raw_token = effective_auth.replace("Bearer ", "").strip()
+        result = await _call_tool(tool_name, tool_args, raw_token)
 
         if "error" in result:
             return JSONResponse(_rpc_ok({
