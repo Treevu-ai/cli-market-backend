@@ -8,6 +8,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import logging
 import os
 
 import httpx
@@ -16,6 +17,8 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from market_core import COUNTRIES, FX_PEN_PER_UNIT, LINES, STORES, convert_currency, get_db
 from market_stats import MCP_TOOLS
 from server_deps import require_api_key
+
+logger = logging.getLogger("market.server").getChild("misc")
 
 router = APIRouter(tags=["misc"])
 
@@ -124,7 +127,7 @@ async def telegram_webhook(request: Request):
         db.commit()
         db.close()
     except Exception:
-        pass
+        logger.warning("failed to persist telegram contact chat_id=%s", chat_id, exc_info=True)
 
     if text in ("/start", "hola", "hi", "hello"):
         reply = (

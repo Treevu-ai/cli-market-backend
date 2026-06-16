@@ -44,6 +44,12 @@ from http_retry import request_with_retry  # noqa: E402
 load_repo_env()
 
 
+def _debug(msg: str) -> None:
+    """Best-effort diagnostic — stderr only, never stdout (which carries JSON output)."""
+    if os.getenv("COMMAND_CONTROL_DEBUG"):
+        print(f"[command-control] {msg}", file=sys.stderr)
+
+
 def _default_metrics_dir() -> Path:
     override = os.getenv("COMMAND_CONTROL_METRICS_DIR", "").strip()
     if override:
@@ -217,7 +223,8 @@ def _latest_pam() -> dict[str, Any] | None:
             data = json.loads(path.read_text(encoding="utf-8"))
             if "summary" in data or "results" in data:
                 return {"file": path.name, **data}
-        except Exception:
+        except Exception as exc:
+            _debug(f"skipping unreadable PAM report {path.name}: {exc}")
             continue
     return None
 
@@ -287,8 +294,8 @@ def _fetch_adoption_index(*, remote: bool) -> dict[str, Any]:
             r = request_with_retry("GET", f"{API_BASE}/analytics/adoption-index", timeout=25)
             if r.status_code == 200 and isinstance(r.json(), dict):
                 return _normalize_adoption_index_payload(r.json())
-        except Exception:
-            pass
+        except Exception as exc:
+            _debug(f"remote adoption-index fetch failed, falling back to local: {exc}")
     try:
         from market_adoption_index import compute_adoption_index, latest_snapshot, score_grade
 
@@ -330,8 +337,8 @@ def _fetch_index_stats_remote() -> dict[str, Any] | None:
         )
         if r.status_code == 200:
             return r.json()
-    except Exception:
-        pass
+    except Exception as exc:
+        _debug(f"remote index/stats fetch failed: {exc}")
     return None
 
 
@@ -358,8 +365,8 @@ def _fetch_observatory(*, remote: bool) -> dict[str, Any]:
                 except Exception:
                     data["daa"] = None
                 return data
-        except Exception:
-            pass
+        except Exception as exc:
+            _debug(f"remote observatory fetch failed, falling back to local: {exc}")
     try:
         from market_observatory import observatory_summary
 

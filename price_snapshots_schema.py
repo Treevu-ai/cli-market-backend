@@ -46,8 +46,8 @@ def ensure_canonical_product_id_column(db=None) -> bool:
         else:
             try:
                 db.execute("ALTER TABLE price_snapshots ADD COLUMN canonical_product_id TEXT")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("canonical_product_id column add skipped (likely already exists): %s", exc)
 
         for idx_sql in [
             (
