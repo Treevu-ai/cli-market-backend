@@ -7,6 +7,8 @@ import re
 
 import httpx
 
+from http_retry import request_with_retry
+
 # CLI Market workspace — override via env if channels move
 DEFAULT_CHANNEL_PUBLICACIONES = "C0B6ZJ1B9B8"  # publicaciones redes
 DEFAULT_CHANNEL_BITACORA = "C0B6V3Y9ZSP"  # bitácora producto
@@ -45,7 +47,8 @@ def _resolve_channel_by_name(token: str, name: str) -> str | None:
         }
         if cursor:
             payload["cursor"] = cursor
-        r = httpx.post(
+        r = request_with_retry(
+            "POST",
             "https://slack.com/api/conversations.list",
             headers={"Authorization": f"Bearer {token}"},
             json=payload,
@@ -165,7 +168,7 @@ def _md_to_slack(text: str) -> str:
 
 def post_via_webhook(webhook_url: str, text: str) -> None:
     for chunk in _chunk_text(text):
-        r = httpx.post(webhook_url, json={"text": chunk}, timeout=15)
+        r = request_with_retry("POST", webhook_url, json={"text": chunk}, timeout=15)
         r.raise_for_status()
 
 
@@ -174,7 +177,8 @@ def post_via_bot(token: str, channel: str, text: str) -> None:
     chunks = _chunk_text(slack_text)
     for i, chunk in enumerate(chunks):
         prefix = f"_(parte {i + 1}/{len(chunks)})_\n\n" if len(chunks) > 1 else ""
-        r = httpx.post(
+        r = request_with_retry(
+            "POST",
             "https://slack.com/api/chat.postMessage",
             headers={"Authorization": f"Bearer {token}"},
             json={"channel": channel, "text": prefix + chunk, "mrkdwn": True},
@@ -187,7 +191,8 @@ def post_via_bot(token: str, channel: str, text: str) -> None:
 
 
 def post_blocks_via_bot(token: str, channel: str, *, text: str, blocks: list) -> None:
-    r = httpx.post(
+    r = request_with_retry(
+        "POST",
         "https://slack.com/api/chat.postMessage",
         headers={"Authorization": f"Bearer {token}"},
         json={

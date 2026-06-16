@@ -37,6 +37,7 @@ from market_core import (
 from store_credentials import get_store_profile, store_exists
 from server_deps import require_api_key
 from index_gate import enrich_list
+from http_retry import request_with_retry
 
 logger = logging.getLogger("market.server").getChild("search")
 
@@ -391,7 +392,9 @@ def product_delivery(product_id: str, store: str, zipcode: str = ""):
 @router.get("/products/barcode/{code}")
 def barcode_lookup(code: str):
     """OpenFoodFacts barcode → product metadata."""
-    r = httpx.get(f"https://world.openfoodfacts.org/api/v2/product/{code}.json", timeout=10)
+    r = request_with_retry(
+        "GET", f"https://world.openfoodfacts.org/api/v2/product/{code}.json", timeout=10
+    )
     if r.status_code == 200:
         product = r.json().get("product", {})
         return {
@@ -408,7 +411,8 @@ def barcode_lookup(code: str):
 def enrich_products(query: str, limit: int = 5, authorization: str | None = Header(None)):
     """OpenFoodFacts text search."""
     require_api_key(authorization)
-    r = httpx.get(
+    r = request_with_retry(
+        "GET",
         f"https://world.openfoodfacts.org/cgi/search.pl?search_terms={query}&json=1&page_size={limit}",
         timeout=10,
     )
