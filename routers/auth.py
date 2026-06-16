@@ -228,7 +228,7 @@ def referral_register(body: ReferralRegisterRequest, authorization: str | None =
             """
             INSERT INTO referral_codes (ref_code, username, install_count, activated_count)
             VALUES (?, ?, 1, 0)
-            ON CONFLICT(ref_code) DO UPDATE SET install_count = install_count + 1
+            ON CONFLICT(ref_code) DO UPDATE SET install_count = referral_codes.install_count + 1
             """,
             [code, username],
         )
