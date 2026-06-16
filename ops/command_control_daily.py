@@ -39,6 +39,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from load_env import load_repo_env  # noqa: E402
+from http_retry import request_with_retry  # noqa: E402
 
 load_repo_env()
 
@@ -242,7 +243,7 @@ def _fetch_dashboard_remote() -> dict[str, Any] | None:
     token = os.getenv("MARKET_API_TOKEN", "")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
-        r = httpx.get(DASHBOARD_URL, headers=headers, timeout=30)
+        r = request_with_retry("GET", DASHBOARD_URL, headers=headers, timeout=30)
         r.raise_for_status()
         data = r.json()
         return data if isinstance(data, dict) and "error" not in data else None
@@ -283,7 +284,7 @@ def _normalize_adoption_index_payload(data: dict[str, Any]) -> dict[str, Any]:
 def _fetch_adoption_index(*, remote: bool) -> dict[str, Any]:
     if remote:
         try:
-            r = httpx.get(f"{API_BASE}/analytics/adoption-index", timeout=25)
+            r = request_with_retry("GET", f"{API_BASE}/analytics/adoption-index", timeout=25)
             if r.status_code == 200 and isinstance(r.json(), dict):
                 return _normalize_adoption_index_payload(r.json())
         except Exception:
@@ -321,7 +322,8 @@ def _fetch_index_stats_remote() -> dict[str, Any] | None:
     if not token:
         return None
     try:
-        r = httpx.get(
+        r = request_with_retry(
+            "GET",
             f"{API_BASE}/index/stats",
             headers={"Authorization": f"Bearer {token}"},
             timeout=20,
@@ -346,11 +348,11 @@ def _fetch_observatory(*, remote: bool) -> dict[str, Any]:
     """MAA + MCP telemetry aggregates (30d window; DAA = 1d MAA)."""
     if remote:
         try:
-            r30 = httpx.get(f"{API_BASE}/analytics/observatory?days=30", timeout=25)
+            r30 = request_with_retry("GET", f"{API_BASE}/analytics/observatory?days=30", timeout=25)
             if r30.status_code == 200 and isinstance(r30.json(), dict):
                 data = r30.json()
                 try:
-                    r1 = httpx.get(f"{API_BASE}/analytics/observatory?days=1", timeout=15)
+                    r1 = request_with_retry("GET", f"{API_BASE}/analytics/observatory?days=1", timeout=15)
                     if r1.status_code == 200:
                         data["daa"] = int(r1.json().get("maa") or 0)
                 except Exception:
