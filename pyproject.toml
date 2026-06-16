@@ -1,6 +1,9 @@
 [project]
 name = "cli-market-backend"
-version = "1.0.0"
+# Versioned independently from cli-market-core/cli-market-world — this is a
+# deployed service, not a published package, so it does not need to track
+# their release cadence.
+version = "1.0.1"
 description = "CLI Market backend"
 requires-python = ">=3.11"
 dependencies = [
