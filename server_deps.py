@@ -175,21 +175,19 @@ TIER_LIMITS: dict[str, tuple[int, int]] = {
 
 
 def _get_user_tier_limits(username: str) -> tuple[int, int]:
-    """Return (daily_max, per_min_max) from the user's subscription row."""
-    from market_core import get_db
-    db = get_db()
-    row = db.execute(
-        "SELECT tier, req_limit_day, req_limit_min FROM subscriptions WHERE username=?",
-        (username,),
-    ).fetchone()
-    db.close()
-    if row:
-        tier = (row["tier"] or "free").lower()
-        defaults = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
-        daily = int(row["req_limit_day"] or defaults[0])
-        per_min = int(row["req_limit_min"] or defaults[1])
-        return daily, per_min
-    return RATE_LIMIT_DAY, RATE_LIMIT_MIN
+    """Return (daily_max, per_min_max) from the user's subscription row.
+
+    Delegates to market_billing.db_get_subscription so an expired temporary
+    grant (e.g. a referral-earned free Pro month) falls back to free-tier
+    limits here too, instead of duplicating that expiry logic in raw SQL.
+    """
+    from market_billing import db_get_subscription
+    sub = db_get_subscription(username)
+    tier = (sub.get("tier") or "free").lower()
+    defaults = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+    daily = int(sub.get("req_limit_day") or defaults[0])
+    per_min = int(sub.get("req_limit_min") or defaults[1])
+    return daily, per_min
 
 
 def check_user_rate_limit(username: str) -> None:
