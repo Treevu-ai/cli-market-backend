@@ -7,6 +7,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 
@@ -15,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from market_core import get_db
 
 router = APIRouter(tags=["retailers"])
+logger = logging.getLogger("market.server").getChild("retailers")
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PLATFORMS = {"vtex", "shopify", "magento", "woocommerce", "other"}
@@ -113,7 +115,7 @@ def apply_retailer(body: dict):
             dedupe=False,
         )
     except Exception:
-        pass
+        logger.debug("record_funnel_event(retailer_apply) failed", exc_info=True)
 
     ack = send_retailer_application_received_email(
         to_email=contact_email,
@@ -197,7 +199,7 @@ def process_starter_subscription_request(
         from market_funnel import record_funnel_event
         record_funnel_event("starter_request", meta={"email": email}, dedupe=False)
     except Exception:
-        pass
+        logger.debug("record_funnel_event(starter_request) failed", exc_info=True)
     ack = send_starter_request_received_email(
         to_email=email,
         request_id=request_id,

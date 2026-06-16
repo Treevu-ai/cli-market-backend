@@ -108,12 +108,12 @@ async def search_products(body: SearchRequest, authorization: str | None = Heade
                     dedupe=True,
                 )
             except Exception:
-                pass
+                logger.debug("record_funnel_event(demo_first_tool_call) failed", exc_info=True)
         try:
             from market_funnel import maybe_first_search
             maybe_first_search(username, query=body.query)
         except Exception:
-            pass
+            logger.debug("maybe_first_search failed", exc_info=True)
         return result
     except Exception as e:
         logger.exception("search_products crashed")
@@ -206,7 +206,7 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
                 dedupe=True,
             )
         except Exception:
-            pass
+            logger.debug("record_funnel_event(demo_first_tool_call) failed", exc_info=True)
     stores = _resolve_search_stores(body)
     all_raw, errors = await _parallel_fetch_stores(stores, body.query, body.page, body.limit)
 
@@ -217,7 +217,7 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
             try:
                 all_products[s].append(product_from_json(p, s))
             except Exception:
-                pass
+                logger.debug("product_from_json failed for store=%s", s, exc_info=True)
 
     def match_key(p: dict) -> str:
         name = re.sub(r"[^a-záéíóúñ0-9]", "", p["name"].lower())
@@ -325,6 +325,7 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
                         }
                     )
             except Exception:
+                logger.debug("basket item resolution failed for store=%s", store, exc_info=True)
                 continue
         if found:
             results[store] = {
