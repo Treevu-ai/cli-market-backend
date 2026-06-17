@@ -45,7 +45,7 @@ logger = logging.getLogger("market.server").getChild("search")
 router = APIRouter(tags=["search"])
 
 
-# ── Relevance filter ─────────────────────────────────────────────────────
+# ── Relevance filter ──────────────────────────────────────────────────────────────────────
 
 def _normalize_text(text: str) -> str:
     """Lowercase, strip accents (panó → pano), keep alphanum+spaces."""
@@ -74,6 +74,33 @@ def _is_relevant(product_name: str, q_tokens: list[str]) -> bool:
         return True
     name_words = _word_set(product_name)
     return any(qt in name_words for qt in q_tokens)
+
+
+# ── REST API funnel instrumentation ───────────────────────────────────────────────────
+
+def _record_tool_call(
+    authorization: str | None,
+    tool: str,
+    username: str,
+    *,
+    country: str | None = None,
+) -> None:
+    """Fire mcp_tool_call funnel event for direct REST API usage (non-MCP-HTTP path).
+    Surfaces agent activity in /dashboard/mcp under client='api'."""
+    if not authorization or username.startswith("demo:"):
+        return
+    try:
+        from market_funnel import is_test_funnel_traffic, record_funnel_event
+        if is_test_funnel_traffic(username):
+            return
+        raw_token = authorization.removeprefix("Bearer ").strip()
+        record_funnel_event(
+            "mcp_tool_call",
+            session_id=raw_token[:20],
+            meta={"client": "api", "tool": tool, "country": country or None},
+        )
+    except Exception:
+        pass
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -130,6 +157,7 @@ async def search_products(body: SearchRequest, authorization: str | None = Heade
     """Multi-store parallel search. Stores are queried in batches of PARALLEL_BATCH;
     a per-batch timeout prevents a slow store from holding up the whole response."""
     username = require_api_key(authorization)
+    _record_tool_call(authorization, "search_products", username, country=body.country)
     try:
         result = await _search_products(body)
         if username.startswith("demo:"):
@@ -244,6 +272,7 @@ async def _search_products(body: SearchRequest):
 async def compare_products(body: SearchRequest, authorization: str | None = Header(None)):
     """Cross-store comparison with brand+name fuzzy matching."""
     username = require_api_key(authorization)
+    _record_tool_call(authorization, "compare_products", username, country=body.country)
     if username.startswith("demo:"):
         try:
             from market_funnel import record_funnel_event
@@ -342,7 +371,8 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
     """Take a list of items + optional stores list, return the cheapest store
     for the combined basket. Each item is searched in each store; missing
     items are skipped."""
-    require_api_key(authorization)
+    username = require_api_key(authorization)
+    _record_tool_call(authorization, "basket_compare", username)
     stores = body.stores or list(STORES.keys())
     stores = [s for s in stores if s in STORES]
     results: dict[str, dict] = {}
