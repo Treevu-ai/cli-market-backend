@@ -6,8 +6,8 @@ Endpoint:
   POST /mcp   JSON-RPC 2.0 — handles initialize, tools/list, tools/call
 
 Usage in claude.ai (Add MCP server):
-  URL: https://cli-market-production.up.railway.app/mcp
-  Auth: Bearer <your-market-api-token>
+  URL: https://cli-market-production.up.railway.app/mcp?token=<your-market-api-token>
+  (claude.ai connectors don't support Bearer auth — use the token query param instead)
 
 Supported tools (maps to existing REST endpoints):
   market_search      → POST /products/search
@@ -30,7 +30,9 @@ from server_deps import require_api_key
 router = APIRouter(tags=["mcp-http"])
 
 _API_BASE = "https://cli-market-production.up.railway.app"
-_MCP_VERSION = "2024-11-05"
+# 2025-03-26 = Streamable HTTP (POST-only).  The older 2024-11-05 protocol
+# uses HTTP+SSE transport, which would require a GET /mcp SSE endpoint.
+_MCP_VERSION = "2025-03-26"
 
 # ── Tool definitions (MCP schema format) ─────────────────────────────────────
 
@@ -158,9 +160,19 @@ def _rpc_err(code: int, message: str, req_id) -> dict:
     return {"jsonrpc": "2.0", "error": {"code": code, "message": message}, "id": req_id}
 
 
+@router.get("/mcp")
+async def mcp_http_get():
+    """Inform SSE-transport clients that this server uses Streamable HTTP (POST only)."""
+    return JSONResponse(
+        {"error": "This MCP server uses Streamable HTTP transport (MCP 2025-03-26). Send POST requests to this endpoint."},
+        status_code=405,
+        headers={"Allow": "POST"},
+    )
+
+
 @router.post("/mcp")
 async def mcp_http(request: Request, authorization: str | None = Header(None), token: str | None = None):
-    """HTTP MCP endpoint — JSON-RPC 2.0 over POST.
+    """HTTP MCP endpoint — JSON-RPC 2.0 over POST (Streamable HTTP, MCP 2025-03-26).
 
     Add to claude.ai as:
       URL: https://cli-market-production.up.railway.app/mcp?token=<your-market-api-token>
