@@ -124,6 +124,9 @@ def is_test_funnel_traffic(
         return False
     if user == "test" or user.startswith(_TEST_USERNAME_PREFIXES):
         return True
+    client_raw = (meta.get("client_raw") or "").strip().lower()
+    if client_raw == "test" or client_raw.startswith(_TEST_USERNAME_PREFIXES):
+        return True
     return bool(_PAM_AUTO_USER.match(user))
 
 
