@@ -18,6 +18,7 @@ import difflib
 import logging
 import os
 import re
+import unicodedata
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException
@@ -43,6 +44,39 @@ logger = logging.getLogger("market.server").getChild("search")
 
 router = APIRouter(tags=["search"])
 
+
+# ── Relevance filter ───────────────────────────────────────────────────
+
+def _normalize_text(text: str) -> str:
+    """Lowercase, strip accents (panó → pano), keep alphanum+spaces."""
+    text = text.lower()
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9\s]", " ", text)
+
+
+def _word_set(text: str) -> frozenset[str]:
+    return frozenset(w for w in _normalize_text(text).split() if len(w) >= 2)
+
+
+def _query_tokens(query: str) -> list[str]:
+    """Normalized tokens from the user query (min 2 chars)."""
+    return [w for w in _normalize_text(query).split() if len(w) >= 2]
+
+
+def _is_relevant(product_name: str, q_tokens: list[str]) -> bool:
+    """True if at least one query token is a complete word in the product name.
+
+    Prevents prefix false-positives: query 'pan' should not match 'pantalon'
+    because 'pan' is not a standalone word there.
+    """
+    if not q_tokens:
+        return True
+    name_words = _word_set(product_name)
+    return any(qt in name_words for qt in q_tokens)
+
+
+# ────────────────────────────────────────────────────────────────────
 
 def _attach_source_health(response: dict, store_ids: list[str]) -> dict:
     try:
@@ -176,6 +210,20 @@ async def _search_products(body: SearchRequest):
             except Exception as pe:
                 errors.append({"store": store, "product_id": str(p)[:80], "error": str(pe)})
 
+    # Post-filter: discard results where no query word is a complete word in the
+    # product name.  Prevents prefix false-positives from retailer APIs, e.g.
+    # query "pan" matching "pantalon jogger" because VTEX returns prefix matches.
+    q_tokens = _query_tokens(body.query)
+    if q_tokens:
+        before = len(results)
+        results = [p for p in results if _is_relevant(p.get("name", ""), q_tokens)]
+        filtered = before - len(results)
+        if filtered:
+            logger.debug(
+                "relevance_filter removed %d/%d results for query=%r",
+                filtered, before, body.query,
+            )
+
     results.sort(key=lambda p: p["price"] if p["price"] > 0 else float("inf"))
     for p in results:
         save_price_snapshot(p)
@@ -183,7 +231,7 @@ async def _search_products(body: SearchRequest):
 
     # ── Index Enrichment ──
     enrich_list(results)
-    # ─────────────────────
+    # ───────────────────
 
     response: dict = {"query": body.query, "results": results, "total": len(results)}
     if errors:
@@ -211,12 +259,16 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
     stores = _resolve_search_stores(body)
     all_raw, errors = await _parallel_fetch_stores(stores, body.query, body.page, body.limit)
 
+    q_tokens = _query_tokens(body.query)
+
     all_products = {}
     for s, raw in all_raw.items():
         all_products[s] = []
         for p in raw:
             try:
-                all_products[s].append(product_from_json(p, s))
+                prod = product_from_json(p, s)
+                if not q_tokens or _is_relevant(prod.get("name", ""), q_tokens):
+                    all_products[s].append(prod)
             except Exception:
                 logger.debug("product_from_json failed for store=%s", s, exc_info=True)
 
@@ -275,7 +327,7 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
     comparison.sort(key=lambda x: x["best_price"])
     # ── Index Enrichment ──
     enrich_list(comparison)
-    # ─────────────────────
+    # ───────────────────
     payload: dict = {"query": body.query, "comparison": comparison, "stores_compared": len(all_raw)}
     if body.country:
         payload["country"] = body.country.strip().upper()
@@ -340,7 +392,7 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
     # ── Index Enrichment ──
     for store_data in results.values():
         enrich_list(store_data["items"], store_key=store_data.get("store_name", ""))
-    # ─────────────────────
+    # ───────────────────
     best = min(results, key=lambda s: results[s]["total"]) if results else None
     return {
         "source": "live",
