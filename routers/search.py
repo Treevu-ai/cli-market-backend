@@ -45,7 +45,7 @@ logger = logging.getLogger("market.server").getChild("search")
 router = APIRouter(tags=["search"])
 
 
-# ── Relevance filter ────────────────────────────────────────────────────────────────────────────────────
+# ── Relevance filter ──────────────────────────────────────────────────────────────────────────────────────────────
 
 def _normalize_text(text: str) -> str:
     """Lowercase, strip accents (panó → pano), keep alphanum+spaces."""
@@ -76,7 +76,7 @@ def _is_relevant(product_name: str, q_tokens: list[str]) -> bool:
     return any(qt in name_words for qt in q_tokens)
 
 
-# ── REST API funnel instrumentation ──────────────────────────────────────────────────────────
+# ── REST API funnel instrumentation ───────────────────────────────────────────────────────────────────────────
 
 def _record_tool_call(
     authorization: str | None,
@@ -103,7 +103,7 @@ def _record_tool_call(
         pass
 
 
-# ───────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────
 
 def _attach_source_health(response: dict, store_ids: list[str]) -> dict:
     try:
