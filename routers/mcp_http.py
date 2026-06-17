@@ -1,6 +1,7 @@
 """HTTP MCP transport endpoint — enables CLI Market to be added as a remote
-MCP server in claude.ai, Claude Desktop (HTTP mode), Cursor, and any other
-MCP-compatible client that supports the streamable HTTP transport.
+MCP server in claude.ai, Claude Desktop (HTTP mode), Cursor, VS Code, Kiro,
+Codex, Gemini, and any other MCP-compatible client that supports the
+Streamable HTTP transport (MCP 2025-03-26).
 
 Endpoint:
   POST /mcp   JSON-RPC 2.0 — handles initialize, tools/list, tools/call
@@ -24,6 +25,7 @@ import httpx
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 
+from market_funnel import record_funnel_event
 from market_stats import MCP_TOOLS, PACKAGE_VERSION, RETAILERS_VERIFIED
 from server_deps import require_api_key
 
@@ -33,6 +35,58 @@ _API_BASE = "https://cli-market-production.up.railway.app"
 # 2025-03-26 = Streamable HTTP (POST-only).  The older 2024-11-05 protocol
 # uses HTTP+SSE transport, which would require a GET /mcp SSE endpoint.
 _MCP_VERSION = "2025-03-26"
+
+# Canonical client slugs — order matters (first match wins).
+# Each entry: (canonical_slug, [substrings to match in lowercased name/UA])
+_CLIENT_MAP: list[tuple[str, list[str]]] = [
+    ("claude",    ["claude", "anthropic"]),
+    ("cursor",    ["cursor"]),
+    ("kiro",      ["kiro", "amazon kiro"]),
+    ("codex",     ["codex", "openai-codex", "openai codex"]),
+    ("gemini",    ["gemini", "google gemini"]),
+    ("windsurf",  ["windsurf"]),
+    ("zed",       ["zed"]),
+    # VS Code last — "code" is a very common substring
+    ("vscode",    ["vscode", "visual studio code", "vs code", "github.copilot"]),
+]
+
+
+def _detect_client(
+    client_info: dict | None,
+    user_agent: str | None,
+) -> tuple[str, str, str]:
+    """Return (canonical_slug, raw_name, raw_version)."""
+    info = client_info or {}
+    raw_name = str(info.get("name") or "").strip()
+    raw_version = str(info.get("version") or "").strip()
+
+    # Prefer clientInfo.name; fall back to User-Agent
+    candidates = [raw_name.lower(), (user_agent or "").lower()]
+    for text in candidates:
+        if not text:
+            continue
+        for slug, patterns in _CLIENT_MAP:
+            if any(p in text for p in patterns):
+                return slug, raw_name or text, raw_version
+
+    return "unknown", raw_name or (user_agent or "")[:80], raw_version
+
+
+def _log_mcp_event(
+    event: str,
+    token: str | None,
+    meta: dict,
+) -> None:
+    """Fire-and-forget funnel event. Never raises."""
+    try:
+        record_funnel_event(
+            event,
+            username=token or None,
+            meta=meta,
+        )
+    except Exception:
+        pass
+
 
 # ── Tool definitions (MCP schema format) ─────────────────────────────────────
 
@@ -171,15 +225,22 @@ async def mcp_http_get():
 
 
 @router.post("/mcp")
-async def mcp_http(request: Request, authorization: str | None = Header(None), token: str | None = None):
+async def mcp_http(
+    request: Request,
+    authorization: str | None = Header(None),
+    token: str | None = None,
+    user_agent: str | None = Header(None, alias="user-agent"),
+):
     """HTTP MCP endpoint — JSON-RPC 2.0 over POST (Streamable HTTP, MCP 2025-03-26).
 
-    Add to claude.ai as:
+    Add to claude.ai / Cursor / VS Code / Kiro / Codex / Gemini as:
       URL: https://cli-market-production.up.railway.app/mcp?token=<your-market-api-token>
-      (claude.ai connectors don't support Bearer auth — use the token query param instead)
+      (if the client supports Bearer auth, use Authorization: Bearer <token> instead)
     """
     # Accept token from Authorization header OR ?token= query param (for claude.ai connectors)
     effective_auth = authorization or (f"Bearer {token}" if token else None)
+    raw_token = effective_auth.replace("Bearer ", "").strip() if effective_auth else None
+
     try:
         body = await request.json()
     except Exception:
@@ -191,6 +252,14 @@ async def mcp_http(request: Request, authorization: str | None = Header(None), t
 
     # ── initialize ────────────────────────────────────────────────────────────
     if method == "initialize":
+        client_info = params.get("clientInfo") or {}
+        client_slug, client_raw, client_version = _detect_client(client_info, user_agent)
+        _log_mcp_event("mcp_connect", raw_token, {
+            "client": client_slug,
+            "client_raw": client_raw,
+            "client_version": client_version,
+            "protocol_version": params.get("protocolVersion", ""),
+        })
         return JSONResponse(_rpc_ok({
             "protocolVersion": _MCP_VERSION,
             "capabilities": {"tools": {"listChanged": False}},
@@ -225,8 +294,13 @@ async def mcp_http(request: Request, authorization: str | None = Header(None), t
         except Exception:
             return JSONResponse(_rpc_err(-32001, "Invalid or expired API token", req_id), status_code=401)
 
-        # Pass the raw token (UUID) to _call_tool — not the username returned by require_api_key
-        raw_token = effective_auth.replace("Bearer ", "").strip()
+        client_slug, client_raw, _ = _detect_client(None, user_agent)
+        _log_mcp_event("mcp_tool_call", raw_token, {
+            "client": client_slug,
+            "tool": tool_name,
+            "country": tool_args.get("country") or None,
+        })
+
         result = await _call_tool(tool_name, tool_args, raw_token)
 
         if "error" in result:
