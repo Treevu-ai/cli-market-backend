@@ -150,7 +150,8 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv(
-        "CORS_ORIGINS", "https://cli-market.dev,http://localhost:3000"
+        "CORS_ORIGINS",
+        "https://cli-market.dev,http://localhost:3000,https://claude.ai,https://api.anthropic.com",
     ).split(","),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
