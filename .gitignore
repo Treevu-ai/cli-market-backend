@@ -10,3 +10,4 @@ build/
 *.sqlite3
 .DS_Store
 *.egg
+agent-tools/
