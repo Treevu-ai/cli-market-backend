@@ -7,6 +7,7 @@ Endpoints:
   GET /v1/intel/indicators/{key} Latest values for one indicator
   GET /v1/intel/scores          Composite moat scores
   GET /v1/intel/basket-stress   Canasta affordability signal
+  GET /v1/intel/brief           Aggregated intel brief (scores + enrichment + subcategories)
   POST /v1/intel/refresh              Recompute and fetch external indicators
   GET  /v1/intel/enrichment           Latest enrichment indicators
   GET  /v1/intel/enrichment/subcategories  Per-staple enrichment (leche, arroz, …)
@@ -249,6 +250,61 @@ def basket_stress(country: str | None = None, authorization: str | None = Header
         ),
         "disclaimer": "Based on cheapest indexed staple per item — not official CPI basket.",
     }
+
+
+@router.get("/v1/intel/brief")
+def intel_brief(
+    country: str | None = None,
+    line: str | None = None,
+    days: int = 7,
+    include_catalog: bool = False,
+    authorization: str | None = Header(None),
+):
+    require_api_key(authorization)
+    """Aggregated intel brief: scores, enrichment, subcategory signals, and optionally the catalog.
+
+    Response shape is designed so market_core._slice_intel_brief() can extract
+    'analytics', 'enrichment', 'subcategories', or 'catalog' slices without
+    a separate round-trip per section.
+    """
+    db = get_db()
+
+    scores = compute_composite_scores(country=country, line=line)
+    basket_stress_value = compute_basket_stress(db, country)
+
+    all_values = get_latest_values(db, country=country, limit=80)
+    enrichment_indicators = [v for v in all_values if v.get("key") in ENRICHMENT_INDICATOR_KEYS]
+    analytics_indicators = [v for v in all_values if v.get("key") in TIER2_INDICATOR_KEYS]
+
+    cc = (country or "PE").upper()
+    subcategory_items = get_subcategory_enrichment(db, cc)
+
+    db.close()
+
+    result: dict = {
+        "country": country,
+        "line": line,
+        "days": days,
+        "analytics": {
+            "basket_stress_index": basket_stress_value,
+            "scores": scores,
+            "indicators": analytics_indicators,
+            "total": len(analytics_indicators),
+        },
+        "enrichment": {
+            "indicators": enrichment_indicators,
+            "total": len(enrichment_indicators),
+        },
+        "subcategories": {
+            "subcategories": subcategory_items,
+            "total": len(subcategory_items),
+        },
+    }
+
+    if include_catalog:
+        result["catalog"] = get_indicator_catalog()
+
+    return result
 
 
 @router.post("/v1/intel/refresh")
