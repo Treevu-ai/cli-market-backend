@@ -64,15 +64,24 @@ def _query_tokens(query: str) -> list[str]:
     return [w for w in _normalize_text(query).split() if len(w) >= 2]
 
 
-def _is_relevant(product_name: str, q_tokens: list[str]) -> bool:
-    """True if at least one query token is a complete word in the product name.
+def _is_relevant(product_name: str, q_tokens: list[str], *, require_all: bool = False) -> bool:
+    """True if the query tokens appear as complete words in the product name.
 
-    Prevents prefix false-positives: query 'pan' should not match 'pantalon'
-    because 'pan' is not a standalone word there.
+    Matching is word-boundary based to prevent prefix false-positives: query
+    'pan' should not match 'pantalon' because 'pan' is not a standalone word there.
+
+    require_all=False (default): at least one token must match. Used by search and
+    compare, where the caller sees the full result list and picks themselves.
+    require_all=True: every token must match. Used by the basket auto-picker, which
+    selects a single product per item with no human in the loop; one-token matching
+    there silently picks cross-brand / cross-type products (e.g. query
+    'leche evaporada gloria entera' matching 'Shake Capuccino UHT Gloria').
     """
     if not q_tokens:
         return True
     name_words = _word_set(product_name)
+    if require_all:
+        return all(qt in name_words for qt in q_tokens)
     return any(qt in name_words for qt in q_tokens)
 
 
@@ -392,7 +401,9 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
                 for p in raw:
                     try:
                         prod = product_from_json(p, store)
-                        if not q_tokens or _is_relevant(prod.get("name", ""), q_tokens):
+                        if not q_tokens or _is_relevant(
+                            prod.get("name", ""), q_tokens, require_all=True
+                        ):
                             candidates.append(prod)
                     except Exception:
                         continue
