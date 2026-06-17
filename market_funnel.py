@@ -506,6 +506,7 @@ def mcp_analytics(*, days: int = 30, include_test: bool = False) -> dict[str, An
     unique_tokens: set[str] = set()
     unique_tokens_by_client: dict[str, set[str]] = {}
     protocol_versions: dict[str, int] = {}
+    unknown_raw_samples: list[str] = []
 
     for row in rows:
         meta = _parse_meta(row["meta"])
@@ -523,6 +524,10 @@ def mcp_analytics(*, days: int = 30, include_test: bool = False) -> dict[str, An
                 unique_tokens_by_client.setdefault(client, set()).add(username)
             proto = meta.get("protocol_version") or "unknown"
             protocol_versions[proto] = protocol_versions.get(proto, 0) + 1
+            if client == "unknown":
+                raw = (meta.get("client_raw") or "").strip()
+                if raw and raw not in unknown_raw_samples:
+                    unknown_raw_samples.append(raw)
         elif event == "mcp_tool_call":
             tool = meta.get("tool") or "unknown"
             tool_calls_by_client[client] = tool_calls_by_client.get(client, 0) + 1
@@ -535,7 +540,7 @@ def mcp_analytics(*, days: int = 30, include_test: bool = False) -> dict[str, An
     total_connects = sum(connects_by_client.values())
     total_tool_calls = sum(tool_calls_by_client.values())
 
-    return {
+    result: dict[str, Any] = {
         "window_days": days,
         "connections": {
             "total": total_connects,
@@ -565,6 +570,9 @@ def mcp_analytics(*, days: int = 30, include_test: bool = False) -> dict[str, An
         },
         "includes_test_traffic": include_test,
     }
+    if unknown_raw_samples:
+        result["unknown_client_raw_samples"] = unknown_raw_samples[:20]
+    return result
 
 
 def maybe_first_search(username: str, *, query: str = "") -> None:
