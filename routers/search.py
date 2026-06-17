@@ -91,8 +91,8 @@ def _record_tool_call(
     if not authorization or username.startswith("demo:"):
         return
     try:
-        from market_funnel import is_noise_username, record_funnel_event
-        if is_noise_username(username):
+        from market_funnel import is_test_funnel_traffic, record_funnel_event
+        if is_test_funnel_traffic(username):
             return
         raw_token = authorization.removeprefix("Bearer ").strip()
         record_funnel_event(

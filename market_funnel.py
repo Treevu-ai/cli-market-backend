@@ -506,7 +506,6 @@ def mcp_analytics(*, days: int = 30, include_test: bool = False) -> dict[str, An
     unique_tokens: set[str] = set()
     unique_tokens_by_client: dict[str, set[str]] = {}
     protocol_versions: dict[str, int] = {}
-    # Collect raw client names for unrecognized clients (for pattern tuning)
     unknown_raw_samples: list[str] = []
 
     for row in rows:
@@ -571,7 +570,6 @@ def mcp_analytics(*, days: int = 30, include_test: bool = False) -> dict[str, An
         },
         "includes_test_traffic": include_test,
     }
-    # Only expose unknown raw samples to admin (caller controls include_test flag)
     if unknown_raw_samples:
         result["unknown_client_raw_samples"] = unknown_raw_samples[:20]
     return result

@@ -88,7 +88,7 @@ def _log_mcp_event(
         pass
 
 
-# ── Tool definitions (MCP schema format) ─────────────────────────────────────
+# ── Tool definitions (MCP schema format) ─────────────────────────────────────────────
 
 _TOOLS = [
     {
@@ -177,7 +177,7 @@ _TOOLS = [
     },
 ]
 
-# ── Tool execution — proxies to existing REST endpoints ───────────────────────
+# ── Tool execution — proxies to existing REST endpoints ─────────────────────────────────
 
 async def _call_tool(name: str, args: dict, token: str) -> dict:
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -204,7 +204,7 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
         return r.json()
 
 
-# ── JSON-RPC dispatcher ───────────────────────────────────────────────────────
+# ── JSON-RPC dispatcher ─────────────────────────────────────────────────────
 
 def _rpc_ok(result: dict, req_id) -> dict:
     return {"jsonrpc": "2.0", "result": result, "id": req_id}
@@ -250,7 +250,7 @@ async def mcp_http(
     req_id = body.get("id")
     params = body.get("params", {})
 
-    # ── initialize ────────────────────────────────────────────────────────────
+    # ── initialize ───────────────────────────────────────────────────────────────────────
     if method == "initialize":
         client_info = params.get("clientInfo") or {}
         client_slug, client_raw, client_version = _detect_client(client_info, user_agent)
@@ -273,15 +273,15 @@ async def mcp_http(
             },
         }, req_id))
 
-    # ── notifications/initialized (no response required) ─────────────────────
+    # ── notifications/initialized (no response required) ─────────────────────────────────
     if method == "notifications/initialized":
         return JSONResponse({})
 
-    # ── tools/list ────────────────────────────────────────────────────────────
+    # ── tools/list ───────────────────────────────────────────────────────────────────────
     if method == "tools/list":
         return JSONResponse(_rpc_ok({"tools": _TOOLS}, req_id))
 
-    # ── tools/call ────────────────────────────────────────────────────────────
+    # ── tools/call ───────────────────────────────────────────────────────────────────────
     if method == "tools/call":
         tool_name = params.get("name", "")
         tool_args = params.get("arguments", {})
@@ -294,7 +294,7 @@ async def mcp_http(
         except Exception:
             return JSONResponse(_rpc_err(-32001, "Invalid or expired API token", req_id), status_code=401)
 
-        # Use clientInfo if included in this request; otherwise rely on User-Agent
+        # Use clientInfo if the client includes it in this request; fall back to User-Agent
         client_info = params.get("clientInfo") or {}
         client_slug, client_raw, _ = _detect_client(client_info, user_agent)
         _log_mcp_event("mcp_tool_call", raw_token, {
@@ -317,5 +317,5 @@ async def mcp_http(
             "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}],
         }, req_id))
 
-    # ── unknown method ────────────────────────────────────────────────────────
+    # ── unknown method ──────────────────────────────────────────────────────────────────────
     return JSONResponse(_rpc_err(-32601, f"Method not found: {method}", req_id), status_code=404)
