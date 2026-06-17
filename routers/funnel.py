@@ -12,7 +12,7 @@ from market_adoption_index import (
     list_snapshots,
     score_grade,
 )
-from market_funnel import FUNNEL_EVENTS, funnel_summary, record_funnel_event
+from market_funnel import FUNNEL_EVENTS, funnel_summary, mcp_analytics, record_funnel_event
 from market_golive import go_live_summary, render_go_live_html
 from market_pepy import pepy_summary
 from server_deps import auth_user, check_rate_limit, require_admin
@@ -183,3 +183,22 @@ def dashboard_go_live_page(
     require_admin(authorization)
     days = max(1, min(days, 90))
     return HTMLResponse(render_go_live_html(days=days))
+
+
+@router.get("/analytics/mcp")
+def analytics_mcp_public(days: int = 30):
+    """Public MCP connection and tool-call analytics by client (no PII)."""
+    days = max(1, min(days, 90))
+    return mcp_analytics(days=days, include_test=False)
+
+
+@router.get("/dashboard/mcp")
+def dashboard_mcp(
+    authorization: str | None = Header(None),
+    days: int = 30,
+    include_test: bool = False,
+):
+    """Admin MCP analytics: connections and tool calls broken down by client."""
+    require_admin(authorization)
+    days = max(1, min(days, 90))
+    return mcp_analytics(days=days, include_test=include_test)

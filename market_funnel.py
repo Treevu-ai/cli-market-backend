@@ -488,6 +488,85 @@ def activation_summary(*, days: int = 30) -> dict[str, Any]:
     }
 
 
+def mcp_analytics(*, days: int = 30, include_test: bool = False) -> dict[str, Any]:
+    """MCP connection and tool-call analytics grouped by client."""
+    ensure_funnel_schema()
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    db = get_db()
+    rows = db.execute(
+        "SELECT event, username, meta, created_at FROM funnel_events WHERE event IN (?, ?) AND created_at >= ?",
+        ("mcp_connect", "mcp_tool_call", since),
+    ).fetchall()
+    db.close()
+
+    connects_by_client: dict[str, int] = {}
+    tool_calls_by_client: dict[str, int] = {}
+    tool_calls_by_tool: dict[str, int] = {}
+    tool_calls_by_client_tool: dict[str, dict[str, int]] = {}
+    unique_tokens: set[str] = set()
+    unique_tokens_by_client: dict[str, set[str]] = {}
+    protocol_versions: dict[str, int] = {}
+
+    for row in rows:
+        meta = _parse_meta(row["meta"])
+        username = row["username"] or ""
+        if not include_test and is_test_funnel_traffic(username, meta):
+            continue
+
+        client = meta.get("client") or "unknown"
+        event = row["event"]
+
+        if event == "mcp_connect":
+            connects_by_client[client] = connects_by_client.get(client, 0) + 1
+            if username:
+                unique_tokens.add(username)
+                unique_tokens_by_client.setdefault(client, set()).add(username)
+            proto = meta.get("protocol_version") or "unknown"
+            protocol_versions[proto] = protocol_versions.get(proto, 0) + 1
+        elif event == "mcp_tool_call":
+            tool = meta.get("tool") or "unknown"
+            tool_calls_by_client[client] = tool_calls_by_client.get(client, 0) + 1
+            tool_calls_by_tool[tool] = tool_calls_by_tool.get(tool, 0) + 1
+            tool_calls_by_client_tool.setdefault(client, {})
+            tool_calls_by_client_tool[client][tool] = (
+                tool_calls_by_client_tool[client].get(tool, 0) + 1
+            )
+
+    total_connects = sum(connects_by_client.values())
+    total_tool_calls = sum(tool_calls_by_client.values())
+
+    return {
+        "window_days": days,
+        "connections": {
+            "total": total_connects,
+            "unique_tokens": len(unique_tokens),
+            "by_client": dict(sorted(connects_by_client.items(), key=lambda x: -x[1])),
+            "unique_by_client": {
+                k: len(v)
+                for k, v in sorted(
+                    unique_tokens_by_client.items(), key=lambda x: -len(x[1])
+                )
+            },
+            "by_protocol_version": dict(
+                sorted(protocol_versions.items(), key=lambda x: -x[1])
+            ),
+        },
+        "tool_calls": {
+            "total": total_tool_calls,
+            "by_client": dict(sorted(tool_calls_by_client.items(), key=lambda x: -x[1])),
+            "by_tool": dict(sorted(tool_calls_by_tool.items(), key=lambda x: -x[1])),
+            "by_client_and_tool": {
+                k: dict(sorted(v.items(), key=lambda x: -x[1]))
+                for k, v in sorted(
+                    tool_calls_by_client_tool.items(),
+                    key=lambda x: -sum(x[1].values()),
+                )
+            },
+        },
+        "includes_test_traffic": include_test,
+    }
+
+
 def maybe_first_search(username: str, *, query: str = "") -> None:
     record_funnel_event(
         "first_search",
