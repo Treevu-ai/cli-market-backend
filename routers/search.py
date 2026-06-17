@@ -37,7 +37,7 @@ from market_core import (
 )
 from store_credentials import get_store_profile, store_exists
 from server_deps import require_api_key
-from index_gate import enrich_list
+from index_gate import enrich_list, infer_category
 from http_retry import request_with_retry
 
 logger = logging.getLogger("market.server").getChild("search")
@@ -397,14 +397,21 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
                 # as complete words in the product name.  Prevents false matches
                 # like "huevos" → "pegatinas de gel de Pascua" or "sal" → "ensalada".
                 q_tokens = _query_tokens(item["name"])
+                # Category guard: when the query maps to a canasta staple, require
+                # the candidate to map to the SAME staple. This rejects cross-category
+                # false matches that token overlap can't (e.g. "aceite vegetal"
+                # matching canned fish "en aceite vegetal"). None = no constraint.
+                q_category = infer_category(item["name"])
                 candidates: list[dict] = []
                 for p in raw:
                     try:
                         prod = product_from_json(p, store)
-                        if not q_tokens or _is_relevant(
-                            prod.get("name", ""), q_tokens, require_all=True
-                        ):
-                            candidates.append(prod)
+                        name = prod.get("name", "")
+                        if q_tokens and not _is_relevant(name, q_tokens, require_all=True):
+                            continue
+                        if q_category and infer_category(name) != q_category:
+                            continue
+                        candidates.append(prod)
                     except Exception:
                         continue
                 if not candidates:

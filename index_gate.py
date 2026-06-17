@@ -201,6 +201,27 @@ def enrich_list(items: List[Dict[str, Any]], store_key: str = "") -> List[Dict[s
     return items
 
 
+def infer_category(name: str) -> Optional[str]:
+    """Best-effort canasta-staple category for a product or query name.
+
+    Returns a staple key (``leche``, ``arroz``, ``aceite``, …) or ``None`` when
+    nothing matches. Delegates to the index taxonomy, which already encodes the
+    cross-category exclusions that token matching can't express — e.g.
+    ``"Filete de Atún en Aceite Vegetal"`` resolves to ``None`` (not ``aceite``).
+
+    Returns ``None`` (never raises) when the index taxonomy is unavailable, so
+    callers degrade to plain token matching.
+    """
+    if not name:
+        return None
+    try:
+        from taxonomy.canasta import infer_canasta_item
+
+        return infer_canasta_item(name)
+    except Exception:
+        return None
+
+
 def _row_to_snapshot(row: Any) -> tuple[str, str, Dict[str, Any]]:
     store = str(row["store"] or "")
     pid = str(row["product_id"] or "")
