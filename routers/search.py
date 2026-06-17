@@ -45,7 +45,7 @@ logger = logging.getLogger("market.server").getChild("search")
 router = APIRouter(tags=["search"])
 
 
-# ── Relevance filter ───────────────────────────────────────────────
+# ── Relevance filter ────────────────────────────────────────────────────────────────────────────────────
 
 def _normalize_text(text: str) -> str:
     """Lowercase, strip accents (panó → pano), keep alphanum+spaces."""
@@ -76,6 +76,8 @@ def _is_relevant(product_name: str, q_tokens: list[str]) -> bool:
     return any(qt in name_words for qt in q_tokens)
 
 
+# ── REST API funnel instrumentation ──────────────────────────────────────────────────────────
+
 def _record_tool_call(
     authorization: str | None,
     tool: str,
@@ -84,10 +86,7 @@ def _record_tool_call(
     country: str | None = None,
 ) -> None:
     """Fire mcp_tool_call funnel event for direct REST API usage (non-MCP-HTTP path).
-
-    Surfaces agent activity in /dashboard/mcp under client='api' so Observatory
-    MAA and MCP HTTP tool calls are visible side-by-side.
-    """
+    Surfaces agent activity in /dashboard/mcp under client='api'."""
     if not authorization or username.startswith("demo:"):
         return
     try:
@@ -104,7 +103,7 @@ def _record_tool_call(
         pass
 
 
-# ───────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────
 
 def _attach_source_health(response: dict, store_ids: list[str]) -> dict:
     try:
@@ -158,9 +157,9 @@ async def search_products(body: SearchRequest, authorization: str | None = Heade
     """Multi-store parallel search. Stores are queried in batches of PARALLEL_BATCH;
     a per-batch timeout prevents a slow store from holding up the whole response."""
     username = require_api_key(authorization)
+    _record_tool_call(authorization, "search_products", username, country=body.country)
     try:
         result = await _search_products(body)
-        _record_tool_call(authorization, "search_products", username, country=body.country)
         if username.startswith("demo:"):
             try:
                 from market_funnel import record_funnel_event
@@ -273,6 +272,7 @@ async def _search_products(body: SearchRequest):
 async def compare_products(body: SearchRequest, authorization: str | None = Header(None)):
     """Cross-store comparison with brand+name fuzzy matching."""
     username = require_api_key(authorization)
+    _record_tool_call(authorization, "compare_products", username, country=body.country)
     if username.startswith("demo:"):
         try:
             from market_funnel import record_funnel_event
@@ -357,7 +357,6 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
     # ── Index Enrichment ──
     enrich_list(comparison)
     # ───────────────────
-    _record_tool_call(authorization, "compare_products", username, country=body.country)
     payload: dict = {"query": body.query, "comparison": comparison, "stores_compared": len(all_raw)}
     if body.country:
         payload["country"] = body.country.strip().upper()
@@ -373,6 +372,7 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
     for the combined basket. Each item is searched in each store; missing
     items are skipped."""
     username = require_api_key(authorization)
+    _record_tool_call(authorization, "basket_compare", username)
     stores = body.stores or list(STORES.keys())
     stores = [s for s in stores if s in STORES]
     results: dict[str, dict] = {}
@@ -428,7 +428,6 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
     for store_data in results.values():
         enrich_list(store_data["items"], store_key=store_data.get("store_name", ""))
     # ───────────────────
-    _record_tool_call(authorization, "basket_compare", username)
     best = min(results, key=lambda s: results[s]["total"]) if results else None
     return {
         "source": "live",
