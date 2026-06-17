@@ -45,7 +45,7 @@ logger = logging.getLogger("market.server").getChild("search")
 router = APIRouter(tags=["search"])
 
 
-# ── Relevance filter ───────────────────────────────────────────────────
+# ── Relevance filter ─────────────────────────────────────────────────────
 
 def _normalize_text(text: str) -> str:
     """Lowercase, strip accents (panó → pano), keep alphanum+spaces."""
@@ -352,31 +352,36 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
         for item in body.items:
             try:
                 raw = await fetch_store(store, item["name"])
-                if raw:
-                    best = min(
-                        raw,
-                        key=lambda p: float(
-                            (
-                                p.get("items", [{}])[0]
-                                .get("sellers", [{}])[0]
-                                .get("commertialOffer", {})
-                                .get("Price", 0)
-                                or 0
-                            )
-                            or float("inf")
-                        ),
-                    )
-                    prod = product_from_json(best, store)
-                    q = item.get("qty", 1)
-                    t += prod["price"] * q
-                    found.append(
-                        {
-                            "name": prod["name"][:40],
-                            "price": prod["price"],
-                            "qty": q,
-                            "subtotal": round(prod["price"] * q, 2),
-                        }
-                    )
+                if not raw:
+                    continue
+                # Convert and filter: only keep products where query words appear
+                # as complete words in the product name.  Prevents false matches
+                # like "huevos" → "pegatinas de gel de Pascua" or "sal" → "ensalada".
+                q_tokens = _query_tokens(item["name"])
+                candidates: list[dict] = []
+                for p in raw:
+                    try:
+                        prod = product_from_json(p, store)
+                        if not q_tokens or _is_relevant(prod.get("name", ""), q_tokens):
+                            candidates.append(prod)
+                    except Exception:
+                        continue
+                if not candidates:
+                    continue
+                best_prod = min(
+                    candidates,
+                    key=lambda p: p["price"] if p["price"] > 0 else float("inf"),
+                )
+                q = item.get("qty", 1)
+                t += best_prod["price"] * q
+                found.append(
+                    {
+                        "name": best_prod["name"][:40],
+                        "price": best_prod["price"],
+                        "qty": q,
+                        "subtotal": round(best_prod["price"] * q, 2),
+                    }
+                )
             except Exception:
                 logger.debug("basket item resolution failed for store=%s", store, exc_info=True)
                 continue
