@@ -45,7 +45,7 @@ logger = logging.getLogger("market.server").getChild("search")
 router = APIRouter(tags=["search"])
 
 
-# ── Relevance filter ───────────────────────────────────────────────────
+# ── Relevance filter ───────────────────────────────────────────────
 
 def _normalize_text(text: str) -> str:
     """Lowercase, strip accents (panó → pano), keep alphanum+spaces."""
@@ -76,7 +76,35 @@ def _is_relevant(product_name: str, q_tokens: list[str]) -> bool:
     return any(qt in name_words for qt in q_tokens)
 
 
-# ────────────────────────────────────────────────────────────────────
+def _record_tool_call(
+    authorization: str | None,
+    tool: str,
+    username: str,
+    *,
+    country: str | None = None,
+) -> None:
+    """Fire mcp_tool_call funnel event for direct REST API usage (non-MCP-HTTP path).
+
+    Surfaces agent activity in /dashboard/mcp under client='api' so Observatory
+    MAA and MCP HTTP tool calls are visible side-by-side.
+    """
+    if not authorization or username.startswith("demo:"):
+        return
+    try:
+        from market_funnel import is_noise_username, record_funnel_event
+        if is_noise_username(username):
+            return
+        raw_token = authorization.removeprefix("Bearer ").strip()
+        record_funnel_event(
+            "mcp_tool_call",
+            session_id=raw_token[:20],
+            meta={"client": "api", "tool": tool, "country": country or None},
+        )
+    except Exception:
+        pass
+
+
+# ───────────────────────────────────────────────────────────────────────
 
 def _attach_source_health(response: dict, store_ids: list[str]) -> dict:
     try:
@@ -132,6 +160,7 @@ async def search_products(body: SearchRequest, authorization: str | None = Heade
     username = require_api_key(authorization)
     try:
         result = await _search_products(body)
+        _record_tool_call(authorization, "search_products", username, country=body.country)
         if username.startswith("demo:"):
             try:
                 from market_funnel import record_funnel_event
@@ -328,6 +357,7 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
     # ── Index Enrichment ──
     enrich_list(comparison)
     # ───────────────────
+    _record_tool_call(authorization, "compare_products", username, country=body.country)
     payload: dict = {"query": body.query, "comparison": comparison, "stores_compared": len(all_raw)}
     if body.country:
         payload["country"] = body.country.strip().upper()
@@ -342,7 +372,7 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
     """Take a list of items + optional stores list, return the cheapest store
     for the combined basket. Each item is searched in each store; missing
     items are skipped."""
-    require_api_key(authorization)
+    username = require_api_key(authorization)
     stores = body.stores or list(STORES.keys())
     stores = [s for s in stores if s in STORES]
     results: dict[str, dict] = {}
@@ -352,31 +382,36 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
         for item in body.items:
             try:
                 raw = await fetch_store(store, item["name"])
-                if raw:
-                    best = min(
-                        raw,
-                        key=lambda p: float(
-                            (
-                                p.get("items", [{}])[0]
-                                .get("sellers", [{}])[0]
-                                .get("commertialOffer", {})
-                                .get("Price", 0)
-                                or 0
-                            )
-                            or float("inf")
-                        ),
-                    )
-                    prod = product_from_json(best, store)
-                    q = item.get("qty", 1)
-                    t += prod["price"] * q
-                    found.append(
-                        {
-                            "name": prod["name"][:40],
-                            "price": prod["price"],
-                            "qty": q,
-                            "subtotal": round(prod["price"] * q, 2),
-                        }
-                    )
+                if not raw:
+                    continue
+                # Convert and filter: only keep products where query words appear
+                # as complete words in the product name.  Prevents false matches
+                # like "huevos" → "pegatinas de gel de Pascua" or "sal" → "ensalada".
+                q_tokens = _query_tokens(item["name"])
+                candidates: list[dict] = []
+                for p in raw:
+                    try:
+                        prod = product_from_json(p, store)
+                        if not q_tokens or _is_relevant(prod.get("name", ""), q_tokens):
+                            candidates.append(prod)
+                    except Exception:
+                        continue
+                if not candidates:
+                    continue
+                best_prod = min(
+                    candidates,
+                    key=lambda p: p["price"] if p["price"] > 0 else float("inf"),
+                )
+                q = item.get("qty", 1)
+                t += best_prod["price"] * q
+                found.append(
+                    {
+                        "name": best_prod["name"][:40],
+                        "price": best_prod["price"],
+                        "qty": q,
+                        "subtotal": round(best_prod["price"] * q, 2),
+                    }
+                )
             except Exception:
                 logger.debug("basket item resolution failed for store=%s", store, exc_info=True)
                 continue
@@ -393,6 +428,7 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
     for store_data in results.values():
         enrich_list(store_data["items"], store_key=store_data.get("store_name", ""))
     # ───────────────────
+    _record_tool_call(authorization, "basket_compare", username)
     best = min(results, key=lambda s: results[s]["total"]) if results else None
     return {
         "source": "live",
