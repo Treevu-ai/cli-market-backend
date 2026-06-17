@@ -11,12 +11,13 @@ Usage in claude.ai (Add MCP server):
   (claude.ai connectors don't support Bearer auth — use the token query param instead)
 
 Supported tools (maps to existing REST endpoints):
-  market_search      → POST /products/search
-  market_compare     → POST /products/compare
-  market_inflation   → GET  /intel/inflation?country=XX
-  market_scores      → GET  /intel/scores?country=XX
-  market_trending    → GET  /products/trending?country=XX&limit=N
-  market_stores      → GET  /stores?country=XX
+  market_search        → POST /products/search
+  market_compare       → POST /products/compare
+  market_inflation     → GET  /v1/intel/inflation?country=XX
+  market_scores        → GET  /v1/intel/scores?country=XX
+  market_intel_brief   → GET  /v1/intel/brief?country=XX&days=N
+  market_trending      → GET  /analytics/trending?country=XX&limit=N
+  market_stores        → GET  /stores?country=XX
 """
 
 from __future__ import annotations
@@ -88,7 +89,7 @@ def _log_mcp_event(
         pass
 
 
-# ── Tool definitions (MCP schema format) ─────────────────────────────────────────────
+# ── Tool definitions (MCP schema format) ─────────────────────────────────────
 
 _TOOLS = [
     {
@@ -155,6 +156,25 @@ _TOOLS = [
         },
     },
     {
+        "name": "market_intel_brief",
+        "description": (
+            "Get an aggregated market intelligence brief for a LATAM country. "
+            "Returns composite scores, basket stress index, enrichment indicators "
+            "(Open Food Facts, Wikimedia, weather, World Bank), and per-subcategory "
+            "price/demand signals — all in a single call. "
+            "Set include_catalog=true to also receive the full indicator catalog."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "country": {"type": "string", "description": "ISO country code: PE, AR, BR, MX, CO, CL"},
+                "line": {"type": "string", "description": "Product line filter (optional)"},
+                "days": {"type": "integer", "default": 7, "description": "Lookback window in days"},
+                "include_catalog": {"type": "boolean", "default": False, "description": "Include full indicator catalog"},
+            },
+        },
+    },
+    {
         "name": "market_trending",
         "description": "Get the most searched and purchased products in the last 7 days for a country.",
         "inputSchema": {
@@ -177,7 +197,7 @@ _TOOLS = [
     },
 ]
 
-# ── Tool execution — proxies to existing REST endpoints ─────────────────────────────────
+# ── Tool execution — proxies to existing REST endpoints ───────────────────────
 
 async def _call_tool(name: str, args: dict, token: str) -> dict:
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -190,6 +210,9 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
             r = await client.get(f"{_API_BASE}/v1/intel/inflation", params={"country": args.get("country")}, headers=headers)
         elif name == "market_scores":
             r = await client.get(f"{_API_BASE}/v1/intel/scores", params={"country": args.get("country")}, headers=headers)
+        elif name == "market_intel_brief":
+            params = {k: v for k, v in args.items() if v is not None}
+            r = await client.get(f"{_API_BASE}/v1/intel/brief", params=params, headers=headers)
         elif name == "market_trending":
             params = {k: v for k, v in args.items() if v is not None}
             r = await client.get(f"{_API_BASE}/analytics/trending", params=params, headers=headers)
@@ -204,7 +227,7 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
         return r.json()
 
 
-# ── JSON-RPC dispatcher ─────────────────────────────────────────────────────
+# ── JSON-RPC dispatcher ───────────────────────────────────────────────────────
 
 def _rpc_ok(result: dict, req_id) -> dict:
     return {"jsonrpc": "2.0", "result": result, "id": req_id}
@@ -250,7 +273,7 @@ async def mcp_http(
     req_id = body.get("id")
     params = body.get("params", {})
 
-    # ── initialize ───────────────────────────────────────────────────────────────────────
+    # ── initialize ────────────────────────────────────────────────────────────
     if method == "initialize":
         client_info = params.get("clientInfo") or {}
         client_slug, client_raw, client_version = _detect_client(client_info, user_agent)
@@ -273,15 +296,15 @@ async def mcp_http(
             },
         }, req_id))
 
-    # ── notifications/initialized (no response required) ─────────────────────────────────
+    # ── notifications/initialized (no response required) ─────────────────────
     if method == "notifications/initialized":
         return JSONResponse({})
 
-    # ── tools/list ───────────────────────────────────────────────────────────────────────
+    # ── tools/list ────────────────────────────────────────────────────────────
     if method == "tools/list":
         return JSONResponse(_rpc_ok({"tools": _TOOLS}, req_id))
 
-    # ── tools/call ───────────────────────────────────────────────────────────────────────
+    # ── tools/call ────────────────────────────────────────────────────────────
     if method == "tools/call":
         tool_name = params.get("name", "")
         tool_args = params.get("arguments", {})
@@ -317,5 +340,5 @@ async def mcp_http(
             "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}],
         }, req_id))
 
-    # ── unknown method ──────────────────────────────────────────────────────────────────────
+    # ── unknown method ────────────────────────────────────────────────────────
     return JSONResponse(_rpc_err(-32601, f"Method not found: {method}", req_id), status_code=404)
