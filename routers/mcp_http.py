@@ -294,9 +294,12 @@ async def mcp_http(
         except Exception:
             return JSONResponse(_rpc_err(-32001, "Invalid or expired API token", req_id), status_code=401)
 
-        client_slug, client_raw, _ = _detect_client(None, user_agent)
+        # Use clientInfo if the client includes it in this request; fall back to User-Agent
+        client_info = params.get("clientInfo") or {}
+        client_slug, client_raw, _ = _detect_client(client_info, user_agent)
         _log_mcp_event("mcp_tool_call", raw_token, {
             "client": client_slug,
+            "client_raw": client_raw,
             "tool": tool_name,
             "country": tool_args.get("country") or None,
         })
