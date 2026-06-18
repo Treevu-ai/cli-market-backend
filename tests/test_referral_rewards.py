@@ -1,7 +1,7 @@
 """End-to-end test for the referral reward credit on /auth/register.
 
 Uses explicit env-var isolation (MARKET_DATA_DIR + DATABASE_URL) before
-any imports, avoiding monkeypatch ordering issues in CI.
+any imports, then calls init_db() directly to guarantee table creation.
 """
 
 import os
@@ -19,16 +19,31 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def _init_isolated_client():
-    """Create a TestClient backed by a fresh, isolated SQLite DB."""
+    """Create a TestClient backed by a fresh, isolated SQLite DB.
+
+    Calls init_db() directly — bypassing the _db_initialized guard entirely —
+    and verifies the referral_codes table exists before returning.
+    """
     import market_core
     import market_core.market_core as mc
 
-    # Reset init flags so init_db always runs for this temp directory
+    # Force SQLite mode + fresh init state on both package and inner module
     for mod in (market_core, mc):
-        mod._db_initialized = False
         mod.USE_PG = False
+        mod._db_initialized = False
+        mod.DATA_DIR = _TEST_DATA_DIR
+        mod.DB_FILE = _TEST_DATA_DIR / "market.db"
 
-    market_core.ensure_db_initialized()
+    market_core.init_db()
+
+    # Verify the table exists before handing the client back
+    import sqlite3
+    conn = sqlite3.connect(str(market_core.DB_FILE))
+    tables = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='referral_codes'"
+    ).fetchall()
+    conn.close()
+    assert tables, "referral_codes table was not created by init_db()"
 
     from fastapi.testclient import TestClient
     from market_server import app
