@@ -1,6 +1,6 @@
 # Public PyPI deps only — GitHub dependency graph / auto-submission read this file.
 # Private cli-market-index pin lives in requirements-private.txt (Docker + local dev).
-cli-market-core>=1.9.44
+cli-market-core @ https://files.pythonhosted.org/packages/07/43/5b12e5a7e840c6ad3fee5899f988764eb49b57912983003cfff9a77ca4f2/cli_market_core-1.9.44-py3-none-any.whl
 
 # Runtime / dev deps not pulled in transitively by cli-market-core.
 playwright>=1.45.0
