@@ -104,6 +104,18 @@ async def lifespan(_app: FastAPI):
     except Exception as e:
         logger.warning("Observatory schema skipped: %s", e)
     try:
+        # P3-9: add session_id column for funnel tracking (cli-market-core PR #35)
+        from market_core import get_db, USE_PG
+        db = get_db()
+        if USE_PG:
+            db.execute("ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS session_id TEXT")
+        else:
+            db.execute("ALTER TABLE agent_events ADD COLUMN session_id TEXT")
+        db.commit()
+        db.close()
+    except Exception:
+        pass  # column already exists or table not yet created
+    try:
         from price_snapshots_schema import ensure_canonical_product_id_column
 
         ensure_canonical_product_id_column()

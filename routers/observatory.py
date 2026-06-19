@@ -15,21 +15,22 @@ router = APIRouter(tags=["observatory"])
 
 
 @router.get("/analytics/observatory")
-def analytics_observatory_public(days: int = 30):
+def analytics_observatory_public(days: int = 30, limit: int = 5):
     """Public aggregate agent telemetry (no PII)."""
     days = max(1, min(days, 90))
-    return observatory_summary(days=days)
+    return observatory_summary(days=days, top_n=limit)
 
 
 @router.get("/dashboard/observatory")
 def dashboard_observatory(
     authorization: str | None = Header(None),
     days: int = 30,
+    limit: int = 50,
 ):
     """Admin: full observatory summary."""
     require_admin(authorization)
     days = max(1, min(days, 90))
-    return observatory_summary(days=days)
+    return observatory_summary(days=days, top_n=limit)
 
 
 @router.post("/admin/observatory/snapshot")
