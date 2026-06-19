@@ -49,6 +49,7 @@ from server_deps import (  # noqa: F401
     check_auth_brute_force,
     record_auth_failure,
     require_user,
+    require_api_key,
     check_rate_limit,
     DEFAULT_TOKEN,
     RATE_LIMIT_MIN,
@@ -179,7 +180,7 @@ from routers.alerts import router as alerts_router
 from routers.analytics import router as analytics_router
 from routers.auth import router as auth_router
 from routers.cart import router as cart_router
-from routers.data_v1 import router as data_v1_router
+from market_core.api_routes import router as v1_router
 from routers.dashboard import router as dashboard_router
 from routers.data_export import router as data_export_router
 from routers.funnel import router as funnel_router
@@ -209,7 +210,7 @@ for r in (
     auth_router,
     cart_router,
     dashboard_router,
-    data_v1_router,
+
     data_export_router,
     discovery_router,
     mcp_http_router,
@@ -229,6 +230,13 @@ for r in (
     search_router,
 ):
     app.include_router(r)
+
+
+# ── v1 routes from shared core (auth wired here) ──────────────────────────
+import market_core.api_routes as _v1_mod
+
+_v1_mod._auth_fn = require_api_key
+app.include_router(v1_router, prefix="/v1")
 
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
