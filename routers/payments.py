@@ -776,9 +776,138 @@ async def billing_paypal_subscribe(body: dict, authorization: str | None = Heade
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=501, detail=f"PayPal not configured: {e}") from e
+        logger.info("billing_paypal_subscribe: PayPal not configured (%s), using fallback", e)
+        return process_pro_subscription_request(email=email, lang=lang, username=username)
     except Exception as e:
         logger.exception("billing_paypal_subscribe failed")
+        raise HTTPException(status_code=503, detail=f"billing unavailable: {e}") from e
+
+
+_PRO_BILLING_METHODS = frozenset({"paypal", "yape", "plin", "mercadopago"})
+
+
+@router.post("/billing/pro-checkout")
+async def billing_pro_checkout(body: dict, authorization: str | None = Header(None)):
+    """Pro billing from landing — PayPal, Mercado Pago, Yape, or Plin."""
+    try:
+        check_rate_limit("billing-pro-checkout")
+        email = (body.get("email") or "").strip().lower()
+        lang = (body.get("lang") or "en").strip().lower()[:2]
+        method = (body.get("payment_method") or "paypal").strip().lower()
+        force = bool(body.get("resend"))
+
+        if method not in _PRO_BILLING_METHODS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"payment_method must be one of: {', '.join(sorted(_PRO_BILLING_METHODS))}",
+            )
+        if not email or not _EMAIL_RE.match(email):
+            raise HTTPException(status_code=400, detail="valid email is required")
+
+        auth_user = ""
+        if authorization:
+            try:
+                auth_user = require_user(authorization)
+            except HTTPException:
+                auth_user = ""
+
+        username = _resolve_pro_username(
+            email,
+            body_username=(body.get("username") or ""),
+            auth_username=auth_user,
+        )
+
+        if method == "paypal":
+            plan = normalize_billing_plan(body.get("plan") or "pro")
+            promo_code = (body.get("promo_code") or "").strip()
+            try:
+                out = await _start_paypal_subscription(username, email, plan=plan, promo_code=promo_code)
+                if out.get("ok"):
+                    out["payment_method"] = "paypal"
+                    return out
+            except ValueError as e:
+                logger.info("billing_pro_checkout paypal: not configured (%s), using fallback", e)
+            except Exception as e:
+                logger.warning("billing_pro_checkout paypal failed (%s), using fallback", e)
+            out = process_pro_subscription_request(email=email, lang=lang, username=username, force=force)
+            out["payment_method"] = "paypal"
+            return out
+
+        if method in ("yape", "plin", "mercadopago"):
+            from market_connectors.paypal_payments import PRO_PRICE_USD
+            raw = os.getenv("PRO_PEN_PER_USD", "3.75")
+            try:
+                pen_per_usd = float(str(raw).strip())
+            except (TypeError, ValueError):
+                pen_per_usd = 3.75
+            if pen_per_usd <= 0:
+                pen_per_usd = 3.75
+            amount_pen = round(float(PRO_PRICE_USD) * pen_per_usd, 2)
+
+            req = db_create_subscription_request(username, email, "")
+            request_id = req["id"]
+
+            if method == "mercadopago":
+                from market_connectors.mercadopago_payments import create_preference
+                mp_return = f"https://cli-market.dev/?mp=success&ref={request_id}#pricing"
+                mp = await create_preference(
+                    amount_pen,
+                    "PEN",
+                    f"CLI-Market-{request_id}",
+                    title="CLI Market Pro",
+                    success_url=mp_return,
+                    pending_url=f"https://cli-market.dev/?mp=pending&ref={request_id}#pricing",
+                    failure_url=f"https://cli-market.dev/?mp=failure&ref={request_id}#pricing",
+                )
+                if not mp.get("checkout_url"):
+                    raise HTTPException(status_code=502, detail=mp.get("error", "Mercado Pago error"))
+                checkout_url = mp["checkout_url"]
+                return {
+                    "ok": True,
+                    "request_id": request_id,
+                    "username": username,
+                    "email": email,
+                    "payment_method": "mercadopago",
+                    "amount_pen": amount_pen,
+                    "checkout_url": checkout_url,
+                    "approve_url": checkout_url,
+                    "auto_activate": True,
+                    "amount_usd": float(PRO_PRICE_USD),
+                }
+
+            phone = os.getenv("YAPE_PLIN_NUMBER", "").strip()
+            if phone:
+                checkout_url = f"yape://pay?phone={phone}&amount={amount_pen:.2f}&ref={request_id}"
+            else:
+                checkout_url = f"https://cli-market.dev/?method={method}&amount={amount_pen:.2f}&ref={request_id}#pricing"
+            return {
+                "ok": True,
+                "request_id": request_id,
+                "username": username,
+                "email": email,
+                "payment_method": method,
+                "amount_pen": amount_pen,
+                "checkout_url": checkout_url,
+                "auto_activate": False,
+                "amount_usd": float(PRO_PRICE_USD),
+                "message": (
+                    f"Transfiere S/ {amount_pen:.2f} via {method.upper()} al número {phone} con referencia {request_id}."
+                    if phone
+                    else f"Paga S/ {amount_pen:.2f} via {method.upper()} — referencia {request_id}."
+                ) if lang == "es" else (
+                    f"Transfer S/ {amount_pen:.2f} via {method.upper()} to {phone} with reference {request_id}."
+                    if phone
+                    else f"Pay S/ {amount_pen:.2f} via {method.upper()} — reference {request_id}."
+                ),
+            }
+
+        raise HTTPException(status_code=400, detail=f"unsupported payment_method: {method}")
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=501, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("billing_pro_checkout failed")
         raise HTTPException(status_code=503, detail=f"billing unavailable: {e}") from e
 
 

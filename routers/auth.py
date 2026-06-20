@@ -2,7 +2,7 @@
 
 Endpoints:
   POST   /auth/login              Username/password → session token
-  GET    /auth/whoami             Token → username
+  GET    /auth/whoami             Token → username + tier
   POST   /auth/keys               Create API key (sk-...) — scopes: read | read_write
   GET    /auth/keys               List user's API keys (prefix only, no secret)
   DELETE /auth/keys/{key_id}      Revoke an API key
@@ -142,7 +142,14 @@ def revoke_session(authorization: str | None = Header(None)):
 @router.get("/auth/whoami")
 def whoami(authorization: str | None = Header(None)):
     username = require_user(authorization)
-    return {"username": username}
+    sub = db_get_subscription(username) or {}
+    tier = (sub.get("tier") or "free").lower()
+    return {
+        "username": username,
+        "tier": tier,
+        "req_limit_day": sub.get("req_limit_day"),
+        "req_limit_min": sub.get("req_limit_min"),
+    }
 
 
 @router.post("/auth/keys")

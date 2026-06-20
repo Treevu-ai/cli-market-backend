@@ -281,10 +281,52 @@ def intel_brief(
 
     db.close()
 
+    def _val(key: str) -> float | None:
+        for v in all_values:
+            if v.get("key") == key:
+                return v.get("value")
+        return None
+
+    shelf: dict = {}
+    for _k in ("promo_intensity", "price_dispersion"):
+        _v = _val(_k)
+        if _v is not None:
+            shelf[_k] = _v
+    if basket_stress_value is not None:
+        shelf["basket_stress_index"] = basket_stress_value
+
+    confidence: dict = {}
+    freshness = _val("moat_freshness")
+    if freshness is not None:
+        confidence["moat_freshness_pct"] = freshness
+    active_stores = _val("store_coverage")
+    confidence["stores_active"] = int(active_stores) if active_stores is not None else len(STORES)
+
+    scores_summary: dict = {}
+    if isinstance(scores, dict):
+        for _sk, _sv in scores.items():
+            if isinstance(_sv, dict):
+                scores_summary[_sk] = {"score": _sv.get("score"), "label": _sv.get("label")}
+            else:
+                scores_summary[_sk] = _sv
+
+    inflation_pct: float | None = _val("shelf_inflation_avg_pct")
+    cc_label = (country or "PE").upper()
+    if inflation_pct is not None:
+        headline = f"{cc_label}: {inflation_pct:+.1f}% en {days}d"
+    elif basket_stress_value is not None:
+        headline = f"{cc_label}: basket stress {basket_stress_value:.2f} — {confidence['stores_active']} tiendas activas."
+    else:
+        headline = f"Moat activo — {confidence['stores_active']} tiendas monitoreadas."
+
     result: dict = {
+        "headline": headline,
         "country": country,
         "line": line,
         "days": days,
+        "shelf": shelf,
+        "scores": scores_summary,
+        "confidence": confidence,
         "analytics": {
             "basket_stress_index": basket_stress_value,
             "scores": scores,
