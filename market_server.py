@@ -164,7 +164,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv(
         "CORS_ORIGINS",
-        "https://cli-market.dev,http://localhost:3000,https://claude.ai,https://api.anthropic.com",
+        "https://cli-market.dev,http://localhost:3000,https://claude.ai,https://api.anthropic.com,https://smithery.ai,https://mcp.smithery.run,https://chat.smithery.ai",
     ).split(","),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
