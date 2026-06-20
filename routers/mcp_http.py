@@ -49,9 +49,10 @@ _PRO_TOOLS = frozenset({
 })
 
 _UPGRADE_MSG = (
-    "This tool requires CLI Market Pro. "
-    "Upgrade at https://cli-market.dev — Pro unlocks basket compare, cart, "
-    "checkout, orders, alerts, export, and AI ask ($49/mo)."
+    "This tool requires CLI Market Pro ($49/mo). "
+    "Start with Starter ($9/mo) for search and compare, or upgrade to Pro "
+    "to unlock basket, cart, checkout, orders, alerts, export, and AI ask. "
+    "Plans at https://cli-market.dev."
 )
 
 # Canonical client slugs — order matters (first match wins).
