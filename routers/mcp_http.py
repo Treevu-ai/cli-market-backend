@@ -10,14 +10,12 @@ Usage in claude.ai (Add MCP server):
   URL: https://cli-market-production.up.railway.app/mcp?token=<your-market-api-token>
   (claude.ai connectors don't support Bearer auth — use the token query param instead)
 
-Supported tools (maps to existing REST endpoints):
-  market_search        → POST /products/search
-  market_compare       → POST /products/compare
-  market_inflation     → GET  /v1/intel/inflation?country=XX
-  market_scores        → GET  /v1/intel/scores?country=XX
-  market_intel_brief   → GET  /v1/intel/brief?country=XX&days=N
-  market_trending      → GET  /analytics/trending?country=XX&limit=N
-  market_stores        → GET  /stores?country=XX
+Tool tiers:
+  Free  — search, compare, stores, trending, inflation, scores, intel_brief,
+           whoami, stats, barcode, discover
+  Pro   — basket, basket_stress, price_risk, favorites, price_alerts,
+           export, ask, add, cart, cart_update, checkout, orders
+           (returns upgrade prompt if tier is free)
 """
 
 from __future__ import annotations
@@ -33,12 +31,30 @@ from server_deps import require_api_key
 router = APIRouter(tags=["mcp-http"])
 
 _API_BASE = "https://cli-market-production.up.railway.app"
-# 2025-03-26 = Streamable HTTP (POST-only).  The older 2024-11-05 protocol
-# uses HTTP+SSE transport, which would require a GET /mcp SSE endpoint.
 _MCP_VERSION = "2025-03-26"
 
+_PRO_TOOLS = frozenset({
+    "market_basket",
+    "market_procurement_signal",
+    "market_price_risk",
+    "market_favorites",
+    "market_price_alerts",
+    "market_export",
+    "market_ask",
+    "market_add",
+    "market_cart",
+    "market_cart_update",
+    "market_checkout",
+    "market_orders",
+})
+
+_UPGRADE_MSG = (
+    "This tool requires CLI Market Pro. "
+    "Upgrade at https://cli-market.dev — Pro unlocks basket compare, cart, "
+    "checkout, orders, alerts, export, and AI ask ($49/mo)."
+)
+
 # Canonical client slugs — order matters (first match wins).
-# Each entry: (canonical_slug, [substrings to match in lowercased name/UA])
 _CLIENT_MAP: list[tuple[str, list[str]]] = [
     ("claude",    ["claude", "anthropic"]),
     ("cursor",    ["cursor"]),
@@ -47,7 +63,6 @@ _CLIENT_MAP: list[tuple[str, list[str]]] = [
     ("gemini",    ["gemini", "google gemini"]),
     ("windsurf",  ["windsurf"]),
     ("zed",       ["zed"]),
-    # VS Code last — "code" is a very common substring
     ("vscode",    ["vscode", "visual studio code", "vs code", "github.copilot"]),
 ]
 
@@ -56,12 +71,9 @@ def _detect_client(
     client_info: dict | None,
     user_agent: str | None,
 ) -> tuple[str, str, str]:
-    """Return (canonical_slug, raw_name, raw_version)."""
     info = client_info or {}
     raw_name = str(info.get("name") or "").strip()
     raw_version = str(info.get("version") or "").strip()
-
-    # Prefer clientInfo.name; fall back to User-Agent
     candidates = [raw_name.lower(), (user_agent or "").lower()]
     for text in candidates:
         if not text:
@@ -69,125 +81,57 @@ def _detect_client(
         for slug, patterns in _CLIENT_MAP:
             if any(p in text for p in patterns):
                 return slug, raw_name or text, raw_version
-
     return "unknown", raw_name or (user_agent or "")[:80], raw_version
 
 
-def _log_mcp_event(
-    event: str,
-    token: str | None,
-    meta: dict,
-) -> None:
-    """Fire-and-forget funnel event. Never raises."""
+def _log_mcp_event(event: str, token: str | None, meta: dict) -> None:
     try:
-        record_funnel_event(
-            event,
-            username=token or None,
-            meta=meta,
-        )
+        record_funnel_event(event, username=token or None, meta=meta)
     except Exception:
         pass
 
 
-# ── Tool definitions (MCP schema format) ─────────────────────────────────────
+# ── Tool definitions ──────────────────────────────────────────────────────────
 
 _TOOLS = [
+    # ── Free ─────────────────────────────────────────────────────────────────
     {
         "name": "market_search",
         "description": (
-            f"Search for products across {RETAILERS_VERIFIED} LATAM retailers. "
+            f"Search products across {RETAILERS_VERIFIED} LATAM retailers. "
             "Returns prices, brands, stores, and normalized unit prices (price_per_kg/L). "
-            "Countries: PE=Peru, AR=Argentina, BR=Brazil, MX=Mexico, CO=Colombia, CL=Chile."
+            "Countries: PE, AR, BR, MX, CO, CL, IT, FR."
         ),
         "inputSchema": {
             "type": "object",
             "required": ["query"],
             "properties": {
-                "query": {"type": "string", "description": "Product name, e.g. 'arroz', 'leche entera', 'aceite vegetal'"},
-                "country": {"type": "string", "description": "ISO country code: PE, AR, BR, MX, CO, CL, IT, FR"},
-                "store": {"type": "string", "description": "Specific store key, e.g. 'wong_pe', 'carrefour_ar'"},
-                "limit": {"type": "integer", "default": 20, "description": "Max results (1-50)"},
+                "query": {"type": "string", "description": "Product name, e.g. 'arroz', 'leche entera'"},
+                "country": {"type": "string", "description": "ISO country code: PE, AR, BR, MX, CO, CL"},
+                "store": {"type": "string", "description": "Store key, e.g. 'wong_pe', 'carrefour_ar'"},
+                "limit": {"type": "integer", "default": 20},
             },
         },
     },
     {
         "name": "market_compare",
         "description": (
-            "Compare prices for the same product across all retailers in a country. "
-            "Returns price spread %, cheapest store, most expensive store, and per-unit price."
+            "Compare prices for a product across all retailers in a country. "
+            "Returns price spread %, cheapest and most expensive stores, unit price."
         ),
         "inputSchema": {
             "type": "object",
             "required": ["query"],
             "properties": {
                 "query": {"type": "string"},
-                "country": {"type": "string", "description": "ISO country code"},
-                "limit": {"type": "integer", "default": 10},
-            },
-        },
-    },
-    {
-        "name": "market_inflation",
-        "description": (
-            "Get real-time inflation and basket stress data for a LATAM country. "
-            "Returns basket stress index (ratio vs baseline), inflation signals, "
-            "and macroeconomic alignment score."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "required": ["country"],
-            "properties": {
-                "country": {"type": "string", "description": "ISO country code: PE, AR, BR, MX, CO, CL"},
-            },
-        },
-    },
-    {
-        "name": "market_scores",
-        "description": (
-            "Get market intelligence scores for a LATAM country (0-100). "
-            "Includes retail aggression, labor stress, logistics risk, and macro alignment."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "required": ["country"],
-            "properties": {
-                "country": {"type": "string", "description": "ISO country code"},
-            },
-        },
-    },
-    {
-        "name": "market_intel_brief",
-        "description": (
-            "Get an aggregated market intelligence brief for a LATAM country. "
-            "Returns composite scores, basket stress index, enrichment indicators "
-            "(Open Food Facts, Wikimedia, weather, World Bank), and per-subcategory "
-            "price/demand signals — all in a single call. "
-            "Set include_catalog=true to also receive the full indicator catalog."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "country": {"type": "string", "description": "ISO country code: PE, AR, BR, MX, CO, CL"},
-                "line": {"type": "string", "description": "Product line filter (optional)"},
-                "days": {"type": "integer", "default": 7, "description": "Lookback window in days"},
-                "include_catalog": {"type": "boolean", "default": False, "description": "Include full indicator catalog"},
-            },
-        },
-    },
-    {
-        "name": "market_trending",
-        "description": "Get the most searched and purchased products in the last 7 days for a country.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "country": {"type": "string", "description": "ISO country code"},
+                "country": {"type": "string"},
                 "limit": {"type": "integer", "default": 10},
             },
         },
     },
     {
         "name": "market_stores",
-        "description": f"List all {RETAILERS_VERIFIED} indexed retailers. Filter by country to see which stores are available.",
+        "description": f"List {RETAILERS_VERIFIED} indexed LATAM retailers. Filter by country.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -195,39 +139,311 @@ _TOOLS = [
             },
         },
     },
+    {
+        "name": "market_trending",
+        "description": "Most searched and purchased products in the last 7 days for a country.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "country": {"type": "string"},
+                "limit": {"type": "integer", "default": 10},
+            },
+        },
+    },
+    {
+        "name": "market_discover",
+        "description": "Discover featured and recommended products for a country.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "country": {"type": "string"},
+                "limit": {"type": "integer", "default": 10},
+            },
+        },
+    },
+    {
+        "name": "market_barcode",
+        "description": "Look up a product by barcode / EAN / UPC.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["code"],
+            "properties": {
+                "code": {"type": "string", "description": "Barcode (EAN-13, UPC-A, etc.)"},
+            },
+        },
+    },
+    {
+        "name": "market_inflation",
+        "description": (
+            "Per-product price delta over the last N days for a LATAM country. "
+            "Returns avg inflation %, top movers, basket stress signals."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["country"],
+            "properties": {
+                "country": {"type": "string", "description": "ISO country code: PE, AR, BR, MX, CO, CL"},
+                "days": {"type": "integer", "default": 30},
+                "limit": {"type": "integer", "default": 20},
+            },
+        },
+    },
+    {
+        "name": "market_scores",
+        "description": (
+            "Market intelligence scores for a LATAM country (0-100). "
+            "Includes retail aggression, labor stress, logistics risk, macro alignment."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["country"],
+            "properties": {
+                "country": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "market_intel_brief",
+        "description": (
+            "Aggregated market intelligence brief: composite scores, basket stress, "
+            "enrichment indicators (Open Food Facts, Wikimedia, weather, World Bank), "
+            "and per-subcategory price/demand signals — all in one call."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "country": {"type": "string", "description": "ISO country code: PE, AR, BR, MX, CO, CL"},
+                "line": {"type": "string"},
+                "days": {"type": "integer", "default": 7},
+                "include_catalog": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
+        "name": "market_stats",
+        "description": "Platform stats: total products indexed, stores active, data freshness, moat health.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "market_whoami",
+        "description": "Return the authenticated user's username and subscription tier.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    # ── Pro ──────────────────────────────────────────────────────────────────
+    {
+        "name": "market_basket",
+        "description": (
+            "[Pro] Compare a basket of items across stores in a country. "
+            "Returns total cost per store, cheapest combination, savings vs most expensive."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["items", "country"],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "List of {name, quantity} objects",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "quantity": {"type": "number", "default": 1},
+                        },
+                    },
+                },
+                "country": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "market_procurement_signal",
+        "description": "[Pro] Basket stress index for a country — affordability signal for procurement decisions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "country": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "market_price_risk",
+        "description": "[Pro] Price alerts: products with delta above threshold in the last 30 days.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["product"],
+            "properties": {
+                "product": {"type": "string"},
+                "store": {"type": "string"},
+                "threshold_pct": {"type": "number", "default": 5.0},
+                "limit": {"type": "integer", "default": 10},
+            },
+        },
+    },
+    {
+        "name": "market_favorites",
+        "description": "[Pro] List, add, or remove products from the user's favorites.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {"type": "string", "enum": ["list", "add", "remove"]},
+                "product_id": {"type": "string", "description": "Required for add/remove"},
+                "name": {"type": "string"},
+                "store": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "market_price_alerts",
+        "description": "[Pro] List active price alerts for the user.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "market_export",
+        "description": "[Pro] Export price snapshot data as JSON or CSV.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "country": {"type": "string"},
+                "line": {"type": "string"},
+                "format": {"type": "string", "enum": ["json", "csv"], "default": "json"},
+                "limit": {"type": "integer", "default": 500},
+            },
+        },
+    },
+    {
+        "name": "market_ask",
+        "description": "[Pro] Ask a natural-language question about prices, stores, or market conditions.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+                "prompt": {"type": "string"},
+                "country": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "market_add",
+        "description": "[Pro] Add a product to the shopping cart.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["product_id", "store"],
+            "properties": {
+                "product_id": {"type": "string"},
+                "name": {"type": "string"},
+                "price": {"type": "number"},
+                "store": {"type": "string"},
+                "quantity": {"type": "integer", "default": 1},
+                "url": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "market_cart",
+        "description": "[Pro] View current shopping cart contents and totals.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "market_cart_update",
+        "description": "[Pro] Update quantity of an item in the cart.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["product_id", "quantity"],
+            "properties": {
+                "product_id": {"type": "string"},
+                "quantity": {"type": "integer"},
+            },
+        },
+    },
+    {
+        "name": "market_checkout",
+        "description": "[Pro] Initiate checkout for the current cart. Returns payment URL.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "payment_method": {"type": "string", "enum": ["yape", "paypal", "plin", "mercadopago"], "default": "yape"},
+            },
+        },
+    },
+    {
+        "name": "market_orders",
+        "description": "[Pro] List past orders for the authenticated user.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 10},
+            },
+        },
+    },
 ]
 
-# ── Tool execution — proxies to existing REST endpoints ───────────────────────
+
+# ── Tool execution ────────────────────────────────────────────────────────────
 
 async def _call_tool(name: str, args: dict, token: str) -> dict:
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=20.0) as client:
+        # ── Free tools ────────────────────────────────────────────────────────
         if name == "market_search":
             r = await client.post(f"{_API_BASE}/products/search", json=args, headers=headers)
         elif name == "market_compare":
             r = await client.post(f"{_API_BASE}/products/compare", json=args, headers=headers)
+        elif name == "market_stores":
+            r = await client.get(f"{_API_BASE}/stores", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_trending":
+            r = await client.get(f"{_API_BASE}/analytics/trending", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_discover":
+            r = await client.get(f"{_API_BASE}/analytics/trending", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_barcode":
+            code = args.get("code", "")
+            r = await client.get(f"{_API_BASE}/products/barcode/{code}", headers=headers)
         elif name == "market_inflation":
-            r = await client.get(f"{_API_BASE}/v1/intel/inflation", params={"country": args.get("country")}, headers=headers)
+            r = await client.get(f"{_API_BASE}/v1/intel/inflation", params={k: v for k, v in args.items() if v is not None}, headers=headers)
         elif name == "market_scores":
             r = await client.get(f"{_API_BASE}/v1/intel/scores", params={"country": args.get("country")}, headers=headers)
         elif name == "market_intel_brief":
-            params = {k: v for k, v in args.items() if v is not None}
-            r = await client.get(f"{_API_BASE}/v1/intel/brief", params=params, headers=headers)
-        elif name == "market_trending":
-            params = {k: v for k, v in args.items() if v is not None}
-            r = await client.get(f"{_API_BASE}/analytics/trending", params=params, headers=headers)
-        elif name == "market_stores":
-            params = {k: v for k, v in args.items() if v is not None}
-            r = await client.get(f"{_API_BASE}/stores", params=params, headers=headers)
+            r = await client.get(f"{_API_BASE}/v1/intel/brief", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_stats":
+            r = await client.get(f"{_API_BASE}/analytics/stats", headers=headers)
+        elif name == "market_whoami":
+            r = await client.get(f"{_API_BASE}/auth/whoami", headers=headers)
+        # ── Pro tools ─────────────────────────────────────────────────────────
+        elif name == "market_basket":
+            r = await client.post(f"{_API_BASE}/v1/basket/compare", json=args, headers=headers)
+        elif name == "market_procurement_signal":
+            r = await client.get(f"{_API_BASE}/v1/intel/basket-stress", params={"country": args.get("country")}, headers=headers)
+        elif name == "market_price_risk":
+            r = await client.get(f"{_API_BASE}/v1/intel/alerts", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_favorites":
+            r = await client.post(f"{_API_BASE}/favorites", json=args, headers=headers)
+        elif name == "market_price_alerts":
+            r = await client.get(f"{_API_BASE}/v1/alerts", headers=headers)
+        elif name == "market_export":
+            r = await client.post(f"{_API_BASE}/v1/data/export", json=args, headers=headers)
+        elif name == "market_ask":
+            r = await client.post(f"{_API_BASE}/agent/ask", json=args, headers=headers)
+        elif name == "market_add":
+            r = await client.post(f"{_API_BASE}/cart/add", json=args, headers=headers)
+        elif name == "market_cart":
+            r = await client.get(f"{_API_BASE}/cart", headers=headers)
+        elif name == "market_cart_update":
+            r = await client.put(f"{_API_BASE}/cart/update", json=args, headers=headers)
+        elif name == "market_checkout":
+            r = await client.post(f"{_API_BASE}/checkout", json=args, headers=headers)
+        elif name == "market_orders":
+            r = await client.get(f"{_API_BASE}/orders", params={k: v for k, v in args.items() if v is not None}, headers=headers)
         else:
             return {"error": f"Unknown tool: {name}"}
 
+        if r.status_code in (402, 403) and name in _PRO_TOOLS:
+            return {"error": "pro_required", "message": _UPGRADE_MSG}
         if r.status_code >= 400:
             return {"error": f"HTTP {r.status_code}", "detail": r.text[:200]}
         return r.json()
 
 
-# ── JSON-RPC dispatcher ───────────────────────────────────────────────────────
+# ── JSON-RPC helpers ──────────────────────────────────────────────────────────
 
 def _rpc_ok(result: dict, req_id) -> dict:
     return {"jsonrpc": "2.0", "result": result, "id": req_id}
@@ -237,19 +453,17 @@ def _rpc_err(code: int, message: str, req_id) -> dict:
     return {"jsonrpc": "2.0", "error": {"code": code, "message": message}, "id": req_id}
 
 
+# ── Routes ────────────────────────────────────────────────────────────────────
+
 @router.get("/.well-known/mcp/server-card.json")
 async def mcp_server_card():
-    """Static server card for Smithery and MCP directory scanners.
-
-    Bypasses the need for SmitheryBot to do a full MCP scan — per
-    https://smithery.ai/docs/build/publish#server-scanning
-    """
+    """Static server card for Smithery and MCP directory scanners."""
     return JSONResponse({
         "name": "CLI Market",
         "version": PACKAGE_VERSION,
         "description": (
             f"Commerce infrastructure for AI agents — {RETAILERS_VERIFIED} verified LATAM retailers, "
-            f"{MCP_TOOLS} MCP tools, 8 countries (PE, AR, BR, MX, CO, CL, IT, FR). "
+            f"{len(_TOOLS)} MCP tools, 8 countries (PE, AR, BR, MX, CO, CL, IT, FR). "
             "61,000+ real prices refreshed every 4h."
         ),
         "homepage": "https://cli-market.dev",
@@ -271,7 +485,7 @@ async def mcp_server_card():
                 "apiKey": {
                     "type": "string",
                     "title": "API Key",
-                    "description": "CLI Market API key (sk-...). Get one free at https://cli-market.dev or via POST /auth/register.",
+                    "description": "CLI Market API key (sk-...). Get one free at https://cli-market.dev",
                     "format": "password",
                 },
             },
@@ -298,11 +512,9 @@ async def mcp_http(
 ):
     """HTTP MCP endpoint — JSON-RPC 2.0 over POST (Streamable HTTP, MCP 2025-03-26).
 
-    Add to claude.ai / Cursor / VS Code / Kiro / Codex / Gemini as:
-      URL: https://cli-market-production.up.railway.app/mcp?token=<your-market-api-token>
-      (if the client supports Bearer auth, use Authorization: Bearer <token> instead)
+    Add to Claude / Cursor / VS Code / Kiro / Codex / Gemini:
+      URL: https://cli-market-production.up.railway.app/mcp?token=<your-api-token>
     """
-    # Accept token from Authorization header OR ?token= query param (for claude.ai connectors)
     effective_auth = authorization or (f"Bearer {token}" if token else None)
     raw_token = effective_auth.replace("Bearer ", "").strip() if effective_auth else None
 
@@ -315,7 +527,6 @@ async def mcp_http(
     req_id = body.get("id")
     params = body.get("params", {})
 
-    # ── initialize ────────────────────────────────────────────────────────────
     if method == "initialize":
         client_info = params.get("clientInfo") or {}
         client_slug, client_raw, client_version = _detect_client(client_info, user_agent)
@@ -333,33 +544,28 @@ async def mcp_http(
                 "version": PACKAGE_VERSION,
                 "description": (
                     f"Commerce infrastructure for AI agents — {RETAILERS_VERIFIED} retailers, "
-                    f"{MCP_TOOLS} tools, 8 LATAM countries."
+                    f"{len(_TOOLS)} tools, 8 LATAM countries."
                 ),
             },
         }, req_id))
 
-    # ── notifications/initialized (no response required) ─────────────────────
     if method == "notifications/initialized":
         return JSONResponse({})
 
-    # ── tools/list ────────────────────────────────────────────────────────────
     if method == "tools/list":
         return JSONResponse(_rpc_ok({"tools": _TOOLS}, req_id))
 
-    # ── tools/call ────────────────────────────────────────────────────────────
     if method == "tools/call":
         tool_name = params.get("name", "")
         tool_args = params.get("arguments", {})
 
-        # Validate auth (Bearer header or ?token= query param)
         if not effective_auth:
             return JSONResponse(_rpc_err(-32001, "Auth required: Authorization header or ?token= query param", req_id), status_code=401)
         try:
-            require_api_key(effective_auth)  # validate only — raises on invalid/expired
+            require_api_key(effective_auth)
         except Exception:
             return JSONResponse(_rpc_err(-32001, "Invalid or expired API token", req_id), status_code=401)
 
-        # Use clientInfo if the client includes it in this request; fall back to User-Agent
         client_info = params.get("clientInfo") or {}
         client_slug, client_raw, _ = _detect_client(client_info, user_agent)
         _log_mcp_event("mcp_tool_call", raw_token, {
@@ -373,7 +579,7 @@ async def mcp_http(
 
         if "error" in result:
             return JSONResponse(_rpc_ok({
-                "content": [{"type": "text", "text": f"Error: {result['error']}"}],
+                "content": [{"type": "text", "text": result.get("message") or f"Error: {result['error']}"}],
                 "isError": True,
             }, req_id))
 
@@ -382,5 +588,4 @@ async def mcp_http(
             "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}],
         }, req_id))
 
-    # ── unknown method ────────────────────────────────────────────────────────
     return JSONResponse(_rpc_err(-32601, f"Method not found: {method}", req_id), status_code=404)
