@@ -45,7 +45,7 @@ logger = logging.getLogger("market.server").getChild("search")
 router = APIRouter(tags=["search"])
 
 
-# ── Relevance filter ──────────────────────────────────────────────────────────────────────
+# ── Relevance filter ────────────────────────────────────────────────────────────────────────────────────
 
 def _normalize_text(text: str) -> str:
     """Lowercase, strip accents (panó → pano), keep alphanum+spaces."""
@@ -85,7 +85,7 @@ def _is_relevant(product_name: str, q_tokens: list[str], *, require_all: bool = 
     return any(qt in name_words for qt in q_tokens)
 
 
-# ── REST API funnel instrumentation ───────────────────────────────────────────────────
+# ── REST API funnel instrumentation ─────────────────────────────────────────────────────────────────────────────
 
 def _record_tool_call(
     authorization: str | None,
@@ -375,73 +375,99 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
     return _attach_source_health(payload, list(all_raw.keys()) or stores)
 
 
+async def _fetch_basket_store(
+    store: str,
+    items: list[dict],
+) -> tuple[str, dict | None]:
+    """Fetch all basket items for a single store in parallel, return (store, result_or_None)."""
+
+    async def resolve_item(item: dict) -> dict | None:
+        try:
+            raw = await fetch_store(store, item["name"])
+            if not raw:
+                return None
+            q_tokens = _query_tokens(item["name"])
+            q_category = infer_category(item["name"])
+            candidates: list[dict] = []
+            for p in raw:
+                try:
+                    prod = product_from_json(p, store)
+                    name = prod.get("name", "")
+                    if q_tokens and not _is_relevant(name, q_tokens, require_all=True):
+                        continue
+                    if q_category and infer_category(name) != q_category:
+                        continue
+                    candidates.append(prod)
+                except Exception:
+                    continue
+            if not candidates:
+                return None
+            best_prod = min(
+                candidates,
+                key=lambda p: p["price"] if p["price"] > 0 else float("inf"),
+            )
+            q = item.get("qty", 1)
+            return {
+                "name": best_prod["name"][:40],
+                "price": best_prod["price"],
+                "qty": q,
+                "subtotal": round(best_prod["price"] * q, 2),
+            }
+        except Exception:
+            logger.debug(
+                "basket item resolution failed for store=%s item=%s",
+                store, item.get("name"), exc_info=True,
+            )
+            return None
+
+    item_results = await asyncio.gather(*[resolve_item(item) for item in items])
+    found = [r for r in item_results if r is not None]
+    if not found:
+        return store, None
+    total = round(sum(r["subtotal"] for r in found), 2)
+    return store, {
+        "store_name": STORES[store]["name"],
+        "currency": STORES[store]["currency"],
+        "items": found,
+        "total": total,
+        "items_found": len(found),
+        "items_requested": len(items),
+    }
+
+
 @router.post("/v1/basket/compare")
 async def basket_compare(body: BasketRequest, authorization: str | None = Header(None)):
     """Take a list of items + optional stores list, return the cheapest store
-    for the combined basket. Each item is searched in each store; missing
-    items are skipped."""
+    for the combined basket. Stores and items are fetched concurrently in
+    batches; a total timeout prevents slow stores from blocking the response."""
     username = require_api_key(authorization)
     _record_tool_call(authorization, "basket_compare", username)
     stores = body.stores or list(STORES.keys())
     stores = [s for s in stores if s in STORES]
+
+    parallel_batch = int(os.getenv("BASKET_PARALLEL_BATCH", "8"))
+    timeout_s = float(os.getenv("BASKET_TIMEOUT", "25.0"))
     results: dict[str, dict] = {}
-    for store in stores:
-        t = 0.0
-        found: list[dict] = []
-        for item in body.items:
-            try:
-                raw = await fetch_store(store, item["name"])
-                if not raw:
-                    continue
-                # Convert and filter: only keep products where query words appear
-                # as complete words in the product name.  Prevents false matches
-                # like "huevos" → "pegatinas de gel de Pascua" or "sal" → "ensalada".
-                q_tokens = _query_tokens(item["name"])
-                # Category guard: when the query maps to a canasta staple, require
-                # the candidate to map to the SAME staple. This rejects cross-category
-                # false matches that token overlap can't (e.g. "aceite vegetal"
-                # matching canned fish "en aceite vegetal"). None = no constraint.
-                q_category = infer_category(item["name"])
-                candidates: list[dict] = []
-                for p in raw:
-                    try:
-                        prod = product_from_json(p, store)
-                        name = prod.get("name", "")
-                        if q_tokens and not _is_relevant(name, q_tokens, require_all=True):
-                            continue
-                        if q_category and infer_category(name) != q_category:
-                            continue
-                        candidates.append(prod)
-                    except Exception:
-                        continue
-                if not candidates:
-                    continue
-                best_prod = min(
-                    candidates,
-                    key=lambda p: p["price"] if p["price"] > 0 else float("inf"),
-                )
-                q = item.get("qty", 1)
-                t += best_prod["price"] * q
-                found.append(
-                    {
-                        "name": best_prod["name"][:40],
-                        "price": best_prod["price"],
-                        "qty": q,
-                        "subtotal": round(best_prod["price"] * q, 2),
-                    }
-                )
-            except Exception:
-                logger.debug("basket item resolution failed for store=%s", store, exc_info=True)
-                continue
-        if found:
-            results[store] = {
-                "store_name": STORES[store]["name"],
-                "currency": STORES[store]["currency"],
-                "items": found,
-                "total": round(t, 2),
-                "items_found": len(found),
-                "items_requested": len(body.items),
-            }
+
+    for i in range(0, len(stores), parallel_batch):
+        batch = stores[i : i + parallel_batch]
+        batch_tasks = [_fetch_basket_store(s, body.items) for s in batch]
+        try:
+            batch_results = await asyncio.wait_for(
+                asyncio.gather(*batch_tasks), timeout=timeout_s
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "basket_compare batch timeout at stores[%d:%d]", i, i + parallel_batch
+            )
+            break
+        except Exception as e:
+            logger.error("basket_compare batch error: %s", e)
+            break
+        for store, store_data in batch_results:
+            if store_data is not None:
+                results[store] = store_data
+
     # ── Index Enrichment ──
     for store_data in results.values():
         enrich_list(store_data["items"], store_key=store_data.get("store_name", ""))
