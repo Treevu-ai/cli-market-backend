@@ -264,6 +264,18 @@ async def mcp_server_card():
             "description": "Free API key via POST /auth/register or https://cli-market.dev",
         },
         "tools": [t["name"] for t in _TOOLS],
+        "configSchema": {
+            "type": "object",
+            "required": ["apiKey"],
+            "properties": {
+                "apiKey": {
+                    "type": "string",
+                    "title": "API Key",
+                    "description": "CLI Market API key (sk-...). Get one free at https://cli-market.dev or via POST /auth/register.",
+                    "format": "password",
+                },
+            },
+        },
     })
 
 
