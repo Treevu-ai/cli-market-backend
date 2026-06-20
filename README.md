@@ -9,7 +9,7 @@
 
 > **Private repo** · Treevu-ai org — request access from maintainer.
 
-FastAPI backend powering the [CLI Market](https://cli-market.dev) production API — 68 retailers (VTEX · Shopify · Magento · WooCommerce), 46,000+ shelf prices, Mercado Pago + PayPal checkout.
+FastAPI backend powering the [CLI Market](https://cli-market.dev) production API — 81 retailers (41 verified active) across VTEX · Shopify · Magento · WooCommerce, 61,000+ shelf prices, Mercado Pago + PayPal checkout.
 
 ![Python 3.11](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-latest-green) ![Railway](https://img.shields.io/badge/Deploy-Railway-blueviolet) ![MIT](https://img.shields.io/badge/License-MIT-lightgrey)
 
@@ -43,7 +43,7 @@ Interactive docs: <https://cli-market-production.up.railway.app/docs>
 |---|---|---|
 | `auth` | `/auth` | Registration, login, API key issuance, plan gating |
 | `search` | `/search` | Product search and cross-retailer price comparison |
-| `retailers` | `/retailers` | Store catalog — 68 retailers, 8 countries, 4 platforms |
+| `retailers` | `/retailers` | Store catalog — 81 retailers (41 verified active), 8 countries, 4 platforms |
 | `cart` | `/cart` | Cart CRUD, basket comparison across retailers |
 | `orders` | `/orders` | Order history, reorder, status tracking |
 | `payments` | `/payments` | PayPal · Mercado Pago · QR Yape/Plin checkout |
@@ -97,10 +97,11 @@ pytest tests/
 | Plan | Price | Requests/day |
 |---|---|---|
 | Free | $0 | 2,000 |
-| Pro | $39/mo | 20,000 |
+| Starter | $9/mo | 5,000 |
+| Pro | $49/mo | 20,000 |
 | Enterprise | Custom | Custom/SLAs |
 
-*(Pricing simplificado — foco principal 1 ICP: AI Agent Builders via pip/MCP. Legacy Starter/Builder consolidados en Pro.)*
+*(Canónico: `cli-market-world/README.md` · `cli-market-world/docs/pricing-strategy.md`)*
 
 Payments: PayPal · Mercado Pago · QR Yape/Plin.
 
