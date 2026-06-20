@@ -1,7 +1,7 @@
 """DEPRECATED — v1 routes moved to market_core.api_routes (shared between backend and CLI).
 
 This file is no longer imported. Routes are now defined in:
-  C:\Users\acuba\Projects\cli-market-core\market_core\api_routes.py
+  market_core/api_routes.py  (cli-market-core package)
 
 The backend imports them via:
   from market_core.api_routes import router as v1_router
