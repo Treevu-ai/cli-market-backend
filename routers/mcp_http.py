@@ -237,6 +237,48 @@ def _rpc_err(code: int, message: str, req_id) -> dict:
     return {"jsonrpc": "2.0", "error": {"code": code, "message": message}, "id": req_id}
 
 
+@router.get("/.well-known/mcp/server-card.json")
+async def mcp_server_card():
+    """Static server card for Smithery and MCP directory scanners.
+
+    Bypasses the need for SmitheryBot to do a full MCP scan — per
+    https://smithery.ai/docs/build/publish#server-scanning
+    """
+    return JSONResponse({
+        "name": "CLI Market",
+        "version": PACKAGE_VERSION,
+        "description": (
+            f"Commerce infrastructure for AI agents — {RETAILERS_VERIFIED} verified LATAM retailers, "
+            f"{MCP_TOOLS} MCP tools, 8 countries (PE, AR, BR, MX, CO, CL, IT, FR). "
+            "61,000+ real prices refreshed every 4h."
+        ),
+        "homepage": "https://cli-market.dev",
+        "repository": "https://pypi.org/project/cli-market-world/",
+        "license": "MIT",
+        "categories": ["commerce", "data", "retail"],
+        "keywords": ["latam", "retail", "prices", "ecommerce", "vtex", "agents", "mcp", "procurement"],
+        "capabilities": {"tools": {}},
+        "authentication": {
+            "type": "bearer",
+            "required": True,
+            "description": "Free API key via POST /auth/register or https://cli-market.dev",
+        },
+        "tools": [t["name"] for t in _TOOLS],
+        "configSchema": {
+            "type": "object",
+            "required": ["apiKey"],
+            "properties": {
+                "apiKey": {
+                    "type": "string",
+                    "title": "API Key",
+                    "description": "CLI Market API key (sk-...). Get one free at https://cli-market.dev or via POST /auth/register.",
+                    "format": "password",
+                },
+            },
+        },
+    })
+
+
 @router.get("/mcp")
 async def mcp_http_get():
     """Inform SSE-transport clients that this server uses Streamable HTTP (POST only)."""
