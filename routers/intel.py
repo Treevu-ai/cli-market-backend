@@ -73,8 +73,8 @@ def inflation_tracker(
     if line:
         q += " AND line = ?"
         params.append(line)
-    q += " ORDER BY queried_at DESC LIMIT ?"
-    params.append(limit * 4)
+    # No inner LIMIT — we need the full window to find earliest+latest per product.
+    # The outer items[:limit] caps the response size.
     rows = db.execute(q, params).fetchall()
     db.close()
 
