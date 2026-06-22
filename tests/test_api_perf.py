@@ -19,13 +19,9 @@ API_BASE = os.getenv(
 
 
 def _skip_live_latency_benchmark() -> None:
-    """Production latency checks are for local/ops runs, not merge-blocking CI."""
-    if (
-        os.getenv("MARKET_SKIP_LIVE") == "1"
-        or os.getenv("CI")
-        or os.getenv("GITHUB_ACTIONS")
-    ):
-        pytest.skip("live API latency benchmarks disabled in CI")
+    """Production latency checks are for local/ops runs only — opt-in."""
+    if os.getenv("MARKET_RUN_LIVE") != "1":
+        pytest.skip("live API latency benchmarks skipped — set MARKET_RUN_LIVE=1 to enable")
 
 
 def _post(path: str, body: dict, timeout: int = 30) -> tuple[int, float, dict | list]:
@@ -44,8 +40,19 @@ def _post(path: str, body: dict, timeout: int = 30) -> tuple[int, float, dict | 
         return resp.status, elapsed_ms, payload
 
 
+def _skip_if_ci() -> None:
+    """Skip unless MARKET_RUN_LIVE=1 is explicitly set — these tests hit production.
+
+    Inverted default: opt-in rather than opt-out so that network-restricted
+    environments (CI, remote containers, sandboxes) never hit prod by accident.
+    """
+    if os.getenv("MARKET_RUN_LIVE") != "1":
+        pytest.skip("live API tests skipped — set MARKET_RUN_LIVE=1 to enable")
+
+
 @pytest.mark.integration
 def test_api_health():
+    _skip_if_ci()
     url = f"{API_BASE.rstrip('/')}/"
     with urllib.request.urlopen(url, timeout=10) as resp:
         data = json.loads(resp.read())
@@ -56,10 +63,10 @@ def test_api_health():
 @pytest.mark.integration
 def test_search_regression_contract():
     """Search returns list with expected product fields."""
+    _skip_if_ci()
     status, elapsed_ms, data = _post("/products/search", {"query": "leche", "limit": 3})
     assert status == 200
-    if os.getenv("MARKET_SKIP_LIVE") != "1" and not os.getenv("CI"):
-        assert elapsed_ms < 5000, f"search too slow: {elapsed_ms}ms"
+    assert elapsed_ms < 5000, f"search too slow: {elapsed_ms}ms"
     results = data.get("results", data) if isinstance(data, dict) else data
     assert isinstance(results, list)
     if results:
@@ -83,15 +90,16 @@ def test_search_p95_under_sla():
 
 @pytest.mark.integration
 def test_compare_regression():
+    _skip_if_ci()
     status, elapsed_ms, data = _post("/products/compare", {"query": "leche", "limit": 5})
     assert status == 200
-    if os.getenv("MARKET_SKIP_LIVE") != "1" and not os.getenv("CI"):
-        assert elapsed_ms < 8000
+    assert elapsed_ms < 8000
     assert isinstance(data, (list, dict))
 
 
 @pytest.mark.integration
 def test_dashboard_data_public():
+    _skip_if_ci()
     url = f"{API_BASE.rstrip('/')}/dashboard/data"
     with urllib.request.urlopen(url, timeout=15) as resp:
         data = json.loads(resp.read())

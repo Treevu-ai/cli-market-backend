@@ -178,6 +178,26 @@ def pre_checkout_validate(
             error="empty_cart",
         )
 
+    # Reject non-positive quantities before any price calculation.
+    # quantity=0 with `or 1` would silently charge for 1 item;
+    # negative quantities would produce negative totals bypassing budget gates.
+    invalid_qty = [
+        i.get("product_id", "?")
+        for i in cart
+        if int(i.get("quantity", 0) or 0) <= 0
+    ]
+    if invalid_qty:
+        trace.append({"step": "cart", "status": "fail", "invalid_qty": invalid_qty})
+        return ValidateResult(
+            ok=False,
+            cart_total=0.0,
+            validated_total=0.0,
+            currency=currency,
+            trace=trace,
+            error="invalid_quantity",
+            action="fix_cart",
+        )
+
     trace.append({"step": "cart", "status": "ok", "items": len(cart)})
 
     max_age = MAX_SNAPSHOT_AGE_SEC()
@@ -190,7 +210,7 @@ def pre_checkout_validate(
     linked = 0
     index_skipped = 0
 
-    cart_total = round(sum(float(i.get("price", 0) or 0) * int(i.get("quantity", 1) or 1) for i in cart), 2)
+    cart_total = round(sum(float(i.get("price", 0) or 0) * int(i.get("quantity", 1)) for i in cart), 2)
     validated_total = 0.0
     all_ok = True
 
@@ -198,7 +218,7 @@ def pre_checkout_validate(
         product_id = item.get("product_id", "")
         store = item.get("store", "")
         cart_price = float(item.get("price", 0) or 0)
-        qty = int(item.get("quantity", 1) or 1)
+        qty = int(item.get("quantity", 1))
         snapshot = _latest_snapshot(product_id, store) if product_id and store else None
 
         row: dict[str, Any] = {
