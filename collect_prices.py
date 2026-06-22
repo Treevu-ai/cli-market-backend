@@ -119,6 +119,42 @@ STORE_QUERY_OVERRIDES: dict[str, list[tuple[str, str]]] = {
         ("microondas", "electro"), ("panela", "electro"), ("mixer", "electro"),
         ("sanduicheira", "electro"), ("chaleira", "electro"), ("fogão", "electro"),
     ],
+    # PE hogar/departamentales/automotriz stores don't match the generic SEED_QUERIES
+    # (supermercados-heavy). Fixed per-store queries keep them contributing every cycle.
+    "promart": [
+        ("taladro", "hogar"), ("pintura", "hogar"), ("manguera", "hogar"),
+        ("cemento", "hogar"), ("foco", "hogar"), ("cerradura", "hogar"),
+        ("llave", "hogar"), ("perno", "hogar"), ("cinta", "hogar"),
+        ("brocha", "hogar"), ("escalera", "hogar"), ("tuberia", "hogar"),
+    ],
+    "sodimac_pe": [
+        ("taladro", "hogar"), ("pintura", "hogar"), ("martillo", "hogar"),
+        ("tornillo", "hogar"), ("cerradura", "hogar"), ("tubo", "hogar"),
+        ("llave", "hogar"), ("cable", "hogar"), ("cinta", "hogar"),
+        ("foco", "hogar"), ("brocha", "hogar"), ("malla", "hogar"),
+    ],
+    "ripley_pe": [
+        ("televisor", "departamentales"), ("zapatillas", "departamentales"),
+        ("perfume", "departamentales"), ("mochila", "departamentales"),
+        ("polo", "departamentales"), ("audifono", "departamentales"),
+        ("reloj", "departamentales"), ("cartera", "departamentales"),
+        ("ropa", "departamentales"), ("jeans", "departamentales"),
+        ("celular", "departamentales"), ("tablet", "departamentales"),
+    ],
+    "falabella_pe": [
+        ("televisor", "departamentales"), ("laptop", "departamentales"),
+        ("zapatillas", "departamentales"), ("polo", "departamentales"),
+        ("perfume", "departamentales"), ("audifono", "departamentales"),
+        ("reloj", "departamentales"), ("cartera", "departamentales"),
+        ("ropa", "departamentales"), ("jeans", "departamentales"),
+        ("celular", "departamentales"), ("tablet", "departamentales"),
+    ],
+    "xray_pe": [
+        ("aceite motor", "automotriz"), ("filtro", "automotriz"),
+        ("bujia", "automotriz"), ("bateria", "automotriz"),
+        ("llanta", "automotriz"), ("freno", "automotriz"),
+        ("amortiguador", "automotriz"), ("correa", "automotriz"),
+    ],
 }
 
 
