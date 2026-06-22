@@ -269,16 +269,16 @@ def compute_adoption_index(
         usage_count = int(maa or 0)
         usage_label = "MAA (agent_events)"
         usage_note = "Observatory telemetry active"
-        usage_target = _target("MAA", 30.0)
+        usage_target = _target("MAA", 40.0)
     else:
         usage_count = first_search
         usage_label = "first_search users (noise-filtered)"
         usage_note = "MCP telemetry inactive — funnel proxy"
-        usage_target = _target("FIRST_SEARCH", 30.0)
+        usage_target = _target("FIRST_SEARCH", 40.0)
 
     dl_score = _norm_log(
         float(downloads_30d or 0),
-        target=_target("DOWNLOADS_30D", 5000.0),
+        target=_target("DOWNLOADS_30D", 2500.0),
     )
     usage_score = _norm_log(float(usage_count), target=usage_target)
     growth_score, growth_pct = _growth_score(
@@ -290,16 +290,16 @@ def compute_adoption_index(
     retention_rate = retention.get("retention_rate")
     activation_score = round(
         (
-            _norm_rate(register_to_search, target=_target("REGISTER_TO_SEARCH", 0.5)) * 0.6
-            + _norm_rate(retention_rate, target=_target("RETENTION_7D", 0.35)) * 0.4
+            _norm_rate(register_to_search, target=_target("REGISTER_TO_SEARCH", 0.40)) * 0.6
+            + _norm_rate(retention_rate, target=_target("RETENTION_7D", 0.20)) * 0.4
         ),
         1,
     )
 
     revenue_intent_score = round(
         (
-            _norm_log(float(pro_req), target=_target("PRO_REQUESTS", 5.0)) * 0.55
-            + _norm_log(float(activated), target=_target("ACTIVATED", 3.0)) * 0.45
+            _norm_log(float(pro_req), target=_target("PRO_REQUESTS", 10.0)) * 0.55
+            + _norm_log(float(activated), target=_target("ACTIVATED", 5.0)) * 0.45
         ),
         1,
     )
