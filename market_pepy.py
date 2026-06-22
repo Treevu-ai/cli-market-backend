@@ -21,7 +21,7 @@ def _api_key() -> str:
 
 
 def project_name() -> str:
-    return (os.getenv("PEPY_PROJECT") or "cli-market").strip().lower()
+    return (os.getenv("PEPY_PROJECT") or "cli-market-world").strip().lower()
 
 
 def pypi_display_project() -> str:
