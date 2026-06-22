@@ -37,7 +37,7 @@ def _pepy_as_multi() -> dict[str, Any]:
         "downloads_last_30d": data.get("downloads_last_30d"),
         "downloads_last_7d_raw": data.get("downloads_last_7d_raw"),
         "downloads_last_30d_raw": data.get("downloads_last_30d_raw"),
-        "downloads_last_7d_no_ci": data.get("downloads_last_30d_no_ci"),
+        "downloads_last_7d_no_ci": data.get("downloads_last_7d_no_ci"),
         "downloads_last_30d_no_ci": data.get("downloads_last_30d_no_ci"),
         "ci_share_pct_30d": data.get("ci_share_pct_30d"),
         "daily_series_14d": data.get("daily_series_14d") or [],
