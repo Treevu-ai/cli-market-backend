@@ -158,3 +158,70 @@ def test_v1_endpoints_registered(isolated_db, monkeypatch):
         ):
             r = client.get(path, headers=headers)
             assert r.status_code == 200, path
+
+
+def test_v1_rejects_unauthenticated(isolated_db, monkeypatch):
+    """All /v1/* endpoints must return 401 when no valid token is supplied.
+
+    This guards against DEFAULT_TOKEN being set to a non-empty value in prod
+    that would allow unauthenticated access, and against auth middleware being
+    accidentally removed from a route.
+    """
+    import server_deps
+    from fastapi.testclient import TestClient
+    import market_server
+
+    # Ensure DEFAULT_TOKEN is empty so there's no server-side bypass
+    monkeypatch.setattr(server_deps, "DEFAULT_TOKEN", "")
+    monkeypatch.delenv("MARKET_API_TOKEN", raising=False)
+
+    isolated_db.ensure_db_initialized()
+
+    protected_paths = [
+        "/v1/quality/flagged?limit=1",
+        "/v1/prices?clean=1&limit=1",
+        "/v1/dispersion?clean=1&limit=1",
+        "/v1/basket",
+        "/v1/coverage/matrix",
+    ]
+
+    with TestClient(market_server.app) as client:
+        for path in protected_paths:
+            # No Authorization header
+            r_none = client.get(path)
+            assert r_none.status_code in (401, 403), (
+                f"GET {path} without auth returned {r_none.status_code}, expected 401/403"
+            )
+
+            # Wrong token
+            r_bad = client.get(path, headers={"Authorization": "Bearer wrong-token"})
+            assert r_bad.status_code in (401, 403), (
+                f"GET {path} with bad token returned {r_bad.status_code}, expected 401/403"
+            )
+
+
+def test_v1_rejects_demo_token_as_default_bypass(isolated_db, monkeypatch):
+    """DEFAULT_TOKEN must not be used as a secret-free backdoor in prod.
+
+    If MARKET_API_TOKEN env var is set to 'demo' or any guessable value,
+    a caller who knows the convention can authenticate without a real API key.
+    This test verifies the auth path actually validates the token value.
+    """
+    import server_deps
+    from fastapi.testclient import TestClient
+    import market_server
+
+    monkeypatch.setattr(server_deps, "DEFAULT_TOKEN", "secret-ops-token")
+    isolated_db.ensure_db_initialized()
+
+    with TestClient(market_server.app) as client:
+        # Wrong token should still fail even if DEFAULT_TOKEN is set
+        r = client.get("/v1/prices?limit=1", headers={"Authorization": "Bearer wrong-token"})
+        assert r.status_code in (401, 403), (
+            f"Wrong token accepted when DEFAULT_TOKEN is set: {r.status_code}"
+        )
+        # Correct token should work
+        r_ok = client.get("/v1/prices?limit=1", headers={"Authorization": "Bearer secret-ops-token"})
+        assert r_ok.status_code == 200, (
+            f"Correct DEFAULT_TOKEN was rejected: {r_ok.status_code}"
+        )

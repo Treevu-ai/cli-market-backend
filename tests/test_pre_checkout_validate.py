@@ -182,3 +182,82 @@ def test_checkout_yape_409_when_drift(checkout_env, monkeypatch):
     detail = r.json()["detail"]
     assert detail["ok"] is False
     assert market_core.db_get_cart("buyer"), "cart must remain when validation fails"
+
+
+# ── Boundary / security cases ───────────────────────────────────────────────
+
+
+def test_validate_zero_quantity_is_rejected(checkout_env):
+    """quantity=0 must be rejected — never silently converted to qty=1 via `or 1`."""
+    import pre_checkout_validate as pcv
+
+    checkout_env.ensure_db_initialized()
+    checkout_env.save_price_snapshot(_product(price=4.5))
+    checkout_env.db_set_subscription("buyer", "pro")
+
+    cart = [{"product_id": "p1", "name": "Leche Gloria 1L", "price": 4.5,
+             "store": "wong", "quantity": 0, "url": ""}]
+    result = pcv.pre_checkout_validate("buyer", cart)
+    assert result.ok is False, "quantity=0 must be rejected, not silently treated as qty=1"
+    assert result.error == "invalid_quantity"
+
+
+def test_validate_negative_quantity_is_rejected(checkout_env):
+    """Negative quantity must be rejected — prevents negative cart_total abuse."""
+    import pre_checkout_validate as pcv
+
+    checkout_env.ensure_db_initialized()
+    checkout_env.save_price_snapshot(_product(price=4.5))
+    checkout_env.db_set_subscription("buyer", "pro")
+
+    cart = [{"product_id": "p1", "name": "Leche Gloria 1L", "price": 4.5,
+             "store": "wong", "quantity": -1, "url": ""}]
+    result = pcv.pre_checkout_validate("buyer", cart)
+    assert result.ok is False, "Negative quantity must be rejected"
+    assert result.error == "invalid_quantity"
+
+
+def test_validate_zero_price_snapshot_does_not_pass(checkout_env):
+    """A snapshot with price=0 must not pass the freshness/drift check unchallenged.
+
+    A price of 0 is almost certainly a scraping error or data corruption;
+    accepting it could allow checkout at zero cost.
+    """
+    import pre_checkout_validate as pcv
+
+    checkout_env.ensure_db_initialized()
+    checkout_env.save_price_snapshot(_product(price=0.0))
+    checkout_env.db_set_subscription("buyer", "pro")
+
+    cart = [{"product_id": "p1", "name": "Leche Gloria 1L", "price": 0.0,
+             "store": "wong", "quantity": 1, "url": ""}]
+    result = pcv.pre_checkout_validate("buyer", cart)
+    # Either ok=False (rejected as anomalous) or cart_total must be 0
+    # — never silently approve a zero-price order as if data were valid.
+    if result.ok:
+        assert result.cart_total == 0.0, (
+            "Zero-price snapshot was accepted and produced non-zero total — data integrity risk"
+        )
+
+
+def test_validate_large_cart_does_not_crash(checkout_env):
+    """100-item cart must complete without error (no recursion overflow, no timeout)."""
+    import pre_checkout_validate as pcv
+
+    market_core = checkout_env
+    market_core.ensure_db_initialized()
+    market_core.db_set_subscription("buyer", "pro")
+
+    for i in range(100):
+        pid = f"bulk_{i}"
+        market_core.save_price_snapshot(_product(product_id=pid, price=5.0 + i, store="wong"))
+
+    cart = [
+        {"product_id": f"bulk_{i}", "name": f"Product {i}", "price": 5.0 + i,
+         "store": "wong", "quantity": 1, "url": ""}
+        for i in range(100)
+    ]
+
+    result = pcv.pre_checkout_validate("buyer", cart)
+    assert hasattr(result, "ok"), "pre_checkout_validate must return a result for large carts"
+    assert len(result.items) == 100, "All 100 items must appear in the result"

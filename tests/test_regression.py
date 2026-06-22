@@ -226,8 +226,12 @@ def test_collector_init_schema_delegates_to_market_core(isolated_db):
     assert "get_db_unified" in src, (
         "collect_prices must use get_db_unified() instead of raw SQLite connections."
     )
-    assert "import sqlite3" not in src.split("# SQLite helpers")[0] if "# SQLite helpers" in src else True, (
-        "collect_prices must not import sqlite3 for DB access — use get_db()."
+    # Verify collect_prices does not bypass the shared DB abstraction with raw sqlite3.
+    # The guard only applies to the section before any "# SQLite helpers" comment block;
+    # if that section marker is absent the whole file is checked.
+    guarded_src = src.split("# SQLite helpers")[0] if "# SQLite helpers" in src else src
+    assert "import sqlite3" not in guarded_src, (
+        "collect_prices must not import sqlite3 for DB access — use get_db_unified()."
     )
 
 
