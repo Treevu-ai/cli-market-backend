@@ -54,6 +54,7 @@ async def agent_ask(body: AskRequest, authorization: str | None = Header(None)):
     Action vocabulary: search, reorder, compare, cart, checkout.
     The MCP server uses this for chat-style intent dispatch.
     """
+    require_api_key(authorization)
     prompt = body.prompt.lower().strip()
     if any(w in prompt for w in ("compra", "comprar", "agregar", "add")):
         words = re.sub(r"[^a-záéíóúñ ]", "", prompt).split()
