@@ -7,6 +7,14 @@
 
 # cli-market-backend
 
+> **⚠️ DEPRECATED** — This repo has been consolidated into [cli-market-world](https://github.com/Treevu-ai/cli-market-world).
+>
+> All backend-only features (AI agent discovery, HTTP MCP transport, MercadoPago checkout,
+> semantic dashboard, retry helpers) have been ported to cli-market-world as of June 2026.
+>
+> **New development should happen in cli-market-world.** This repo is kept for reference
+> and existing Railway deployments. Migrate to cli-market-world for the single source of truth.
+
 > **Private repo** · Treevu-ai org — request access from maintainer.
 
 FastAPI backend powering the [CLI Market](https://cli-market.dev) production API — 81 retailers (41 verified active) across VTEX · Shopify · Magento · WooCommerce, 61,000+ shelf prices, Mercado Pago + PayPal checkout.
