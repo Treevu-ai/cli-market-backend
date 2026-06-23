@@ -352,6 +352,45 @@ def notify_funnel_digest(*, hours: int = 24) -> bool:
         return False
 
 
+def notify_new_registration(
+    *,
+    username: str,
+    email: str = "",
+    ref_code: str = "",
+    api_key_prefix: str = "",
+) -> bool:
+    """Send outreach-ready registration card to #funnel-cli-market.
+
+    Fires whenever Slack is configured — not gated by SLACK_FUNNEL_REALTIME.
+    """
+    if not _funnel_slack_ready():
+        return False
+    try:
+        import datetime
+
+        from slack_notify import deliver_to_funnel
+
+        now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        lines = [
+            "🆕 *[REGISTRO]* nuevo usuario",
+            f"• usuario: `{username}`",
+        ]
+        if email:
+            lines.append(f"• email: {email}")
+        else:
+            lines.append("• email: —  _(no proporcionado)_")
+        if ref_code:
+            lines.append(f"• ref_code: `{ref_code}`")
+        if api_key_prefix:
+            lines.append(f"• api_key: `{api_key_prefix}…`")
+        lines.append(f"• fecha: {now}")
+        deliver_to_funnel("\n".join(lines))
+        return True
+    except Exception as exc:
+        logger.warning("notify_new_registration Slack failed: %s", exc)
+        return False
+
+
 # Backward-compatible aliases
 def format_pro_subscription_message(**kwargs) -> str:
     kwargs.setdefault("tier", "pro")
