@@ -60,17 +60,24 @@ class RefreshRequest(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+class RegisterRequest(BaseModel):
+    ref_code: str | None = None
+    email: str | None = None
+
+
 @router.post("/auth/register")
-def register(ref_code: str | None = Body(default=None, embed=True)):
+def register(body: RegisterRequest = Body(default=RegisterRequest())):
     """Create a new API key. Public endpoint — rate limited.
 
     Optional `ref_code` credits the referrer (see
     market_billing.apply_referral_activation) when this is a referred signup.
+    Optional `email` is stored for outreach (never shown in API responses).
     """
     check_rate_limit("auth")
     username = f"user-{uuid.uuid4().hex[:12]}"
+    email = (body.email or "").strip().lower() or None
     # Random password — access is via sk- API key, not password login.
-    db_save_user(username, hash_password(uuid.uuid4().hex), None)
+    db_save_user(username, hash_password(uuid.uuid4().hex), None, email)
     db_set_subscription(username, "free")
     result = db_create_api_key(username, "read_write", "register")
     try:
@@ -78,10 +85,10 @@ def register(ref_code: str | None = Body(default=None, embed=True)):
         record_funnel_event("register", username=username, dedupe=True)
     except Exception:
         logger.debug("record_funnel_event(register) failed", exc_info=True)
-    if ref_code:
+    if body.ref_code:
         try:
             from market_billing import apply_referral_activation
-            apply_referral_activation(ref_code, username)
+            apply_referral_activation(body.ref_code, username)
         except Exception:
             logger.debug("apply_referral_activation failed", exc_info=True)
     return {
