@@ -710,10 +710,17 @@ async def billing_paypal(
     username = require_api_key(authorization)
     plan = normalize_billing_plan(body.get("plan") or "pro")
     promo_code = (body.get("promo_code") or "").strip()
+    body_email = (body.get("email") or "").strip().lower()
     try:
-        from market_core import db_get_user_email
+        from market_core import db_get_user_email, db_save_user, db_get_users
 
-        email = db_get_user_email(username) or f"{username}@cli-market.dev"
+        db_email = db_get_user_email(username) or ""
+        if body_email and not db_email:
+            users = db_get_users()
+            user = users.get(username) or {}
+            db_save_user(username, user.get("password", ""), user.get("token"), body_email)
+            db_email = body_email
+        email = db_email or body_email or f"{username}@cli-market.dev"
         out = await _start_paypal_subscription(username, email, plan=plan, promo_code=promo_code)
         if out.get("ok"):
             out["message"] = (
