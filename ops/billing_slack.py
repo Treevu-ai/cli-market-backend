@@ -362,13 +362,16 @@ def notify_new_registration(
     """Send outreach-ready registration card to #funnel-cli-market.
 
     Fires whenever Slack is configured — not gated by SLACK_FUNNEL_REALTIME.
+    Includes an "Activar Pro" button (requires SLACK_BOT_TOKEN; confirmed
+    payment externally before clicking).
     """
     if not _funnel_slack_ready():
         return False
     try:
         import datetime
+        import os
 
-        from slack_notify import deliver_to_funnel
+        from slack_notify import channel_funnel, post_blocks_via_bot, deliver_to_funnel
 
         now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
         lines = [
@@ -384,7 +387,37 @@ def notify_new_registration(
         if api_key_prefix:
             lines.append(f"• api_key: `{api_key_prefix}…`")
         lines.append(f"• fecha: {now}")
-        deliver_to_funnel("\n".join(lines))
+        text = "\n".join(lines)
+
+        token = os.getenv("SLACK_BOT_TOKEN", "").strip()
+        if token:
+            blocks = [
+                {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "action_id": "activate_user_pro",
+                            "text": {"type": "plain_text", "text": "Activar Pro ✅"},
+                            "style": "primary",
+                            "value": username,
+                            "confirm": {
+                                "title": {"type": "plain_text", "text": "¿Confirmar pago?"},
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": f"Activa Pro para `{username}`. Solo hacerlo *después* de confirmar el pago.",
+                                },
+                                "confirm": {"type": "plain_text", "text": "Sí, activar"},
+                                "deny": {"type": "plain_text", "text": "Cancelar"},
+                            },
+                        }
+                    ],
+                },
+            ]
+            post_blocks_via_bot(token, channel_funnel(), text=text, blocks=blocks)
+        else:
+            deliver_to_funnel(text)
         return True
     except Exception as exc:
         logger.warning("notify_new_registration Slack failed: %s", exc)
