@@ -1,7 +1,7 @@
 # Public PyPI deps only — GitHub dependency graph / auto-submission read this file.
 # Private cli-market-index pin lives in requirements-private.txt (Docker + local dev).
 # Pinned to git until 1.10.0 is published to PyPI (includes api_routes module).
-cli-market-core @ git+https://github.com/Treevu-ai/cli-market-core.git@1ed299e
+cli-market-core @ git+https://github.com/Treevu-ai/cli-market-core.git@db525e0
 
 # Runtime / dev deps not pulled in transitively by cli-market-core.
 playwright>=1.45.0
