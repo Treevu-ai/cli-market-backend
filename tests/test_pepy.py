@@ -46,8 +46,32 @@ def test_pepy_summary(mock_fetch):
     assert data["downloads_last_30d"] >= 390
 
 
+MOCK_PUBLIC_RESPONSES = {
+    "cli-market": {"total_downloads": 5000},
+    "cli-market-core": {"total_downloads": 3000},
+    "cli-market-world": {"total_downloads": 4500},
+}
+
+
+def _mock_urlopen(req, timeout=None):
+    import json
+    from io import BytesIO
+    from unittest.mock import MagicMock
+
+    url = req.get_full_url() if hasattr(req, "get_full_url") else str(req)
+    for name, data in MOCK_PUBLIC_RESPONSES.items():
+        if f"/{name}" in url:
+            resp = MagicMock()
+            resp.read.return_value = json.dumps(data).encode()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            return resp
+    raise ValueError(f"Unexpected URL in mock: {url}")
+
+
 @patch.dict("os.environ", {}, clear=True)
-def test_analytics_pypi_public_consolidated():
+@patch("market_pepy.urllib.request.urlopen", side_effect=_mock_urlopen)
+def test_analytics_pypi_public_consolidated(mock_urlopen):
     """Consolidated totals work without PEPY_API_KEY (Pepy v2 public fallback)."""
     import market_pepy as mp
 

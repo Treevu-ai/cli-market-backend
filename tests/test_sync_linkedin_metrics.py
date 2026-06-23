@@ -14,7 +14,11 @@ from sync_linkedin_metrics import metrics_from_dashboard  # noqa: E402
 
 def test_content_root_falls_back_to_template(monkeypatch, tmp_path):
     monkeypatch.delenv("CLI_MARKET_CONTENT_DIR", raising=False)
-    monkeypatch.chdir(tmp_path)
+    # Patch ROOT so neither local nor sibling cli-market-content dirs exist,
+    # forcing the template fallback regardless of the dev environment layout.
+    import content_paths
+
+    monkeypatch.setattr(content_paths, "ROOT", tmp_path)
     root = content_root()
     assert root == template_dir().resolve()
     assert (root / "linkedin" / "data-gate.md").is_file()
