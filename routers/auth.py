@@ -91,6 +91,20 @@ def register(body: RegisterRequest = Body(default=RegisterRequest())):
             apply_referral_activation(body.ref_code, username)
         except Exception:
             logger.debug("apply_referral_activation failed", exc_info=True)
+    try:
+        import sys, os
+        _ops = os.path.join(os.path.dirname(__file__), "..", "ops")
+        if _ops not in sys.path:
+            sys.path.insert(0, _ops)
+        from billing_slack import notify_new_registration
+        notify_new_registration(
+            username=username,
+            email=email or "",
+            ref_code=body.ref_code or "",
+            api_key_prefix=result.get("prefix", ""),
+        )
+    except Exception:
+        logger.debug("notify_new_registration failed", exc_info=True)
     return {
         "username": username,
         "api_key": result["key"],
