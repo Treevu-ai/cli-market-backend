@@ -149,12 +149,7 @@ STORE_QUERY_OVERRIDES: dict[str, list[tuple[str, str]]] = {
         ("ropa", "departamentales"), ("jeans", "departamentales"),
         ("celular", "departamentales"), ("tablet", "departamentales"),
     ],
-    "xray_pe": [
-        ("aceite motor", "automotriz"), ("filtro", "automotriz"),
-        ("bujia", "automotriz"), ("bateria", "automotriz"),
-        ("llanta", "automotriz"), ("freno", "automotriz"),
-        ("amortiguador", "automotriz"), ("correa", "automotriz"),
-    ],
+    # xray_pe removed 2026-06-24: 64 consecutive DNS failures, unrecoverable
 }
 
 
