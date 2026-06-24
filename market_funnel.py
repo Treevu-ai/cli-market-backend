@@ -45,6 +45,10 @@ FUNNEL_EVENTS = frozenset(
         "demo_session_created",
         "demo_first_tool_call",
         "activated",
+        # P1: granular CLI dropoff tracking (install → register)
+        "cli_command_attempted",
+        "cli_command_result",
+        "cli_auth_wall_hit",
     }
 )
 
@@ -585,3 +589,118 @@ def maybe_first_search(username: str, *, query: str = "") -> None:
         meta={"query": query[:80]} if query else None,
         dedupe=True,
     )
+
+
+def dropoff_summary(*, days: int = 30, include_test: bool = False) -> dict[str, Any]:
+    """P1: Granular CLI dropoff analysis — install → register funnel.
+
+    Surfaces where anonymous users drop before registering, using the three
+    telemetry events emitted by market_cli_telemetry.py:
+      cli_command_attempted  — first command the user ran (dedupe per machine)
+      cli_command_result     — success/failure + elapsed_ms (up to 5 per machine)
+      cli_auth_wall_hit      — user hit a 401 without being registered
+    """
+    ensure_funnel_schema()
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT event, username, session_id, meta, created_at
+        FROM funnel_events
+        WHERE event IN ('cli_command_attempted','cli_command_result','cli_auth_wall_hit')
+          AND created_at >= ?
+        """,
+        (since,),
+    ).fetchall()
+    db.close()
+
+    attempted: dict[str, dict] = {}   # session_id → {command, ts}
+    results: list[dict] = []
+    auth_wall_hits: list[dict] = []
+    excluded = 0
+
+    for row in rows:
+        meta = _parse_meta(row["meta"])
+        user = row["username"]
+        if not include_test and is_test_funnel_traffic(user, meta):
+            excluded += 1
+            continue
+
+        ev = row["event"]
+        sid = row["session_id"] or ""
+        cmd = (meta.get("command") or "unknown").strip()
+
+        if ev == "cli_command_attempted":
+            attempted[sid] = {"command": cmd, "ts": row["created_at"], "username": user}
+        elif ev == "cli_command_result":
+            results.append({
+                "session_id": sid,
+                "command": cmd,
+                "success": bool(meta.get("success")),
+                "elapsed_ms": meta.get("elapsed_ms"),
+                "error_type": meta.get("error_type"),
+                "username": user,
+            })
+        elif ev == "cli_auth_wall_hit":
+            auth_wall_hits.append({"session_id": sid, "command": cmd, "username": user})
+
+    total_attempted = len(attempted)
+    total_auth_wall = len(auth_wall_hits)
+
+    # Sessions that hit auth wall and eventually registered
+    wall_sids = {h["session_id"] for h in auth_wall_hits}
+    converted_after_wall = sum(
+        1 for h in auth_wall_hits if h.get("username")
+    )
+
+    # Command breakdown for cli_command_attempted
+    cmd_counts: dict[str, int] = {}
+    for v in attempted.values():
+        cmd_counts[v["command"]] = cmd_counts.get(v["command"], 0) + 1
+
+    # Auth wall: which commands trigger it most
+    wall_cmd_counts: dict[str, int] = {}
+    for h in auth_wall_hits:
+        wall_cmd_counts[h["command"]] = wall_cmd_counts.get(h["command"], 0) + 1
+
+    # Success rate from cli_command_result
+    total_results = len(results)
+    success_n = sum(1 for r in results if r["success"])
+    failure_n = total_results - success_n
+    error_types: dict[str, int] = {}
+    for r in results:
+        et = r.get("error_type") or ("none" if r["success"] else "unknown")
+        error_types[et] = error_types.get(et, 0) + 1
+
+    elapsed_vals = [r["elapsed_ms"] for r in results if r.get("elapsed_ms") is not None]
+    median_elapsed = _median_minutes(elapsed_vals) if elapsed_vals else None
+
+    def _pct(n: int, d: int) -> float | None:
+        return round(n / d * 100, 1) if d > 0 else None
+
+    return {
+        "window_days": days,
+        "cli_sessions": {
+            "attempted": total_attempted,
+            "hit_auth_wall": total_auth_wall,
+            "auth_wall_pct": _pct(total_auth_wall, total_attempted),
+            "converted_after_wall": converted_after_wall,
+            "wall_conversion_pct": _pct(converted_after_wall, total_auth_wall),
+        },
+        "command_distribution": dict(
+            sorted(cmd_counts.items(), key=lambda x: -x[1])
+        ),
+        "auth_wall_by_command": dict(
+            sorted(wall_cmd_counts.items(), key=lambda x: -x[1])
+        ),
+        "command_results": {
+            "total": total_results,
+            "success": success_n,
+            "failure": failure_n,
+            "success_pct": _pct(success_n, total_results),
+            "median_elapsed_ms": median_elapsed,
+            "error_types": dict(sorted(error_types.items(), key=lambda x: -x[1])),
+        },
+        "excluded_test_events": excluded,
+        "includes_test_traffic": include_test,
+    }

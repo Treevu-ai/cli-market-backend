@@ -12,7 +12,7 @@ from market_adoption_index import (
     list_snapshots,
     score_grade,
 )
-from market_funnel import FUNNEL_EVENTS, funnel_summary, mcp_analytics, record_funnel_event
+from market_funnel import FUNNEL_EVENTS, dropoff_summary, funnel_summary, mcp_analytics, record_funnel_event
 from market_golive import go_live_summary, render_go_live_html
 from market_pepy import pepy_summary
 from server_deps import auth_user, check_rate_limit, require_admin
@@ -183,6 +183,34 @@ def dashboard_go_live_page(
     require_admin(authorization)
     days = max(1, min(days, 90))
     return HTMLResponse(render_go_live_html(days=days))
+
+
+@router.get("/analytics/dropoff")
+def analytics_dropoff_public(days: int = 30):
+    """Public CLI dropoff analysis: install → auth wall → register (no PII)."""
+    days = max(1, min(days, 90))
+    data = dropoff_summary(days=days, include_test=False)
+    # Strip any per-session detail before returning publicly
+    return {
+        "window_days": data["window_days"],
+        "cli_sessions": data["cli_sessions"],
+        "command_distribution": data["command_distribution"],
+        "auth_wall_by_command": data["auth_wall_by_command"],
+        "command_results": data["command_results"],
+        "excluded_test_events": data["excluded_test_events"],
+    }
+
+
+@router.get("/dashboard/dropoff")
+def dashboard_dropoff(
+    authorization: str | None = Header(None),
+    days: int = 30,
+    include_test: bool = False,
+):
+    """Admin CLI dropoff dashboard: full breakdown including test traffic."""
+    require_admin(authorization)
+    days = max(1, min(days, 90))
+    return dropoff_summary(days=days, include_test=include_test)
 
 
 @router.get("/analytics/mcp")
