@@ -703,3 +703,127 @@ def dropoff_summary(*, days: int = 30, include_test: bool = False) -> dict[str, 
         "excluded_test_events": excluded,
         "includes_test_traffic": include_test,
     }
+
+
+def render_dropoff_html(*, days: int = 30) -> str:
+    """P1: HTML dashboard for CLI install→register dropoff analysis."""
+    import html as _html
+
+    data = dropoff_summary(days=days, include_test=False)
+    s = data["cli_sessions"]
+    cmd_dist = data["command_distribution"]
+    wall_cmds = data["auth_wall_by_command"]
+    res = data["command_results"]
+
+    def _bar(count: int, total: int, color: str = "#38bdf8") -> str:
+        pct = round(count / total * 100) if total > 0 else 0
+        return (
+            f'<div style="background:#1e293b;border-radius:4px;height:8px;margin-top:4px">'
+            f'<div style="width:{pct}%;background:{color};height:8px;border-radius:4px"></div>'
+            f"</div>"
+        )
+
+    def _cmd_rows(mapping: dict[str, int]) -> str:
+        total = sum(mapping.values()) or 1
+        rows = ""
+        for cmd, n in list(mapping.items())[:10]:
+            rows += (
+                f"<tr><td>{_html.escape(cmd)}</td><td style='text-align:right'>{n}</td>"
+                f"<td style='width:120px'>{_bar(n, total)}</td></tr>"
+            )
+        return rows or "<tr><td colspan='3' style='color:#64748b'>Sin datos</td></tr>"
+
+    wall_pct = s.get("auth_wall_pct") or 0
+    wall_color = "#ef4444" if wall_pct > 50 else "#eab308" if wall_pct > 20 else "#22c55e"
+    success_pct = res.get("success_pct") or 0
+    succ_color = "#22c55e" if success_pct >= 80 else "#eab308" if success_pct >= 50 else "#ef4444"
+
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>CLI Market · Dropoff P1</title>
+  <style>
+    * {{ box-sizing: border-box; }}
+    body {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#0a0a0a; color:#e2e8f0; margin:0; padding:24px; }}
+    h1 {{ margin:0 0 4px; font-size:1.4rem; }}
+    .sub {{ color:#64748b; font-size:0.85rem; margin-bottom:20px; }}
+    .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-bottom:24px; }}
+    .card {{ background:#111; border:1px solid #333; border-radius:8px; padding:16px; }}
+    .card h2 {{ margin:0 0 10px; font-size:0.9rem; color:#94a3b8; text-transform:uppercase; letter-spacing:.05em; }}
+    .big {{ font-size:2rem; font-weight:700; line-height:1; }}
+    .label {{ font-size:0.75rem; color:#64748b; margin-top:4px; }}
+    table {{ width:100%; border-collapse:collapse; font-size:0.85rem; }}
+    td {{ padding:6px 4px; border-bottom:1px solid #1e293b; vertical-align:middle; }}
+    tr:last-child td {{ border-bottom:none; }}
+    .section {{ background:#111; border:1px solid #333; border-radius:8px; padding:16px; margin-bottom:16px; }}
+    .section h2 {{ margin:0 0 12px; font-size:0.9rem; color:#94a3b8; text-transform:uppercase; letter-spacing:.05em; }}
+    .meta {{ color:#64748b; font-size:0.8rem; margin-top:20px; }}
+    a {{ color:#38bdf8; }}
+  </style>
+</head>
+<body>
+  <h1>CLI Market · Dropoff dashboard (P1)</h1>
+  <p class="sub">install → auth wall → register · ventana {days}d · {ts}</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Sesiones CLI</h2>
+      <div class="big">{s['attempted']}</div>
+      <div class="label">comandos intentados</div>
+    </div>
+    <div class="card">
+      <h2>Auth wall hit</h2>
+      <div class="big" style="color:{wall_color}">{s['hit_auth_wall']}</div>
+      <div class="label">{s.get('auth_wall_pct') or 0}% de sesiones</div>
+    </div>
+    <div class="card">
+      <h2>Convirtieron post-wall</h2>
+      <div class="big" style="color:#22c55e">{s['converted_after_wall']}</div>
+      <div class="label">{s.get('wall_conversion_pct') or 0}% de los que chocaron el muro</div>
+    </div>
+    <div class="card">
+      <h2>Éxito de comando</h2>
+      <div class="big" style="color:{succ_color}">{success_pct}%</div>
+      <div class="label">{res['success']} ok / {res['failure']} fail de {res['total']}</div>
+    </div>
+    <div class="card">
+      <h2>Latencia mediana</h2>
+      <div class="big">{res.get('median_elapsed_ms') or '—'}</div>
+      <div class="label">ms por comando</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Primer comando intentado (distribución)</h2>
+    <table>
+      <tr><td style="color:#64748b">Comando</td><td style="color:#64748b;text-align:right">N</td><td></td></tr>
+      {_cmd_rows(cmd_dist)}
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Auth wall — comandos que más lo disparan</h2>
+    <table>
+      <tr><td style="color:#64748b">Comando</td><td style="color:#64748b;text-align:right">N</td><td></td></tr>
+      {_cmd_rows(wall_cmds)}
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Tipos de error</h2>
+    <table>
+      {''.join(f"<tr><td>{_html.escape(k)}</td><td style='text-align:right'>{v}</td></tr>" for k,v in (res.get('error_types') or {}).items()) or "<tr><td colspan='2' style='color:#64748b'>Sin datos</td></tr>"}
+    </table>
+  </div>
+
+  <p class="meta">
+    JSON: <a href="/dashboard/dropoff?days={days}">/dashboard/dropoff</a> ·
+    Público: <a href="/analytics/dropoff">/analytics/dropoff</a> ·
+    Go-live: <a href="/dashboard/go-live/page">/dashboard/go-live/page</a>
+  </p>
+</body>
+</html>"""
