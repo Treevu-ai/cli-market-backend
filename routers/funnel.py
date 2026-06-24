@@ -12,7 +12,7 @@ from market_adoption_index import (
     list_snapshots,
     score_grade,
 )
-from market_funnel import FUNNEL_EVENTS, dropoff_summary, funnel_summary, mcp_analytics, record_funnel_event
+from market_funnel import FUNNEL_EVENTS, dropoff_summary, funnel_summary, mcp_analytics, record_funnel_event, render_dropoff_html
 from market_golive import go_live_summary, render_go_live_html
 from market_pepy import pepy_summary
 from server_deps import auth_user, check_rate_limit, require_admin
@@ -211,6 +211,17 @@ def dashboard_dropoff(
     require_admin(authorization)
     days = max(1, min(days, 90))
     return dropoff_summary(days=days, include_test=include_test)
+
+
+@router.get("/dashboard/dropoff/page")
+def dashboard_dropoff_page(
+    authorization: str | None = Header(None),
+    days: int = 30,
+):
+    """Admin HTML dropoff dashboard: install → auth wall → register."""
+    require_admin(authorization)
+    days = max(1, min(days, 90))
+    return HTMLResponse(render_dropoff_html(days=days))
 
 
 @router.get("/analytics/mcp")
