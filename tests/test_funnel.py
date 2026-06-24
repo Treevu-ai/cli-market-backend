@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from fastapi.testclient import TestClient
 from market_core import ensure_db_initialized
 from market_funnel import (
+    dropoff_summary,
     ensure_funnel_schema,
     funnel_summary,
     is_test_funnel_traffic,
@@ -73,6 +74,39 @@ def test_funnel_summary_excludes_test_traffic():
     assert raw["events"]["request_pro"] - filtered["events"]["request_pro"] >= 1
     assert filtered["excluded_test_events"] >= 1
     assert raw["excluded_test_events"] == 0
+
+
+def test_cli_dropoff_events_accepted():
+    """cli_command_attempted / cli_command_result / cli_auth_wall_hit must pass validation."""
+    sid = f"test-sess-{uuid.uuid4().hex[:8]}"
+    for event, meta in [
+        ("cli_command_attempted", {"command": "search", "cli_version": "0.1.0", "platform": "Linux"}),
+        ("cli_command_result", {"command": "search", "success": True, "elapsed_ms": 420}),
+        ("cli_auth_wall_hit", {"command": "account", "registered": False}),
+    ]:
+        r = client.post("/v1/events", json={"event": event, "session_id": sid, "meta": meta})
+        assert r.status_code == 200, f"{event} rejected: {r.text}"
+        assert r.json().get("ok") is True
+
+
+def test_dropoff_summary_and_endpoint():
+    sid = f"drop-{uuid.uuid4().hex[:8]}"
+    record_funnel_event("cli_command_attempted", session_id=sid, meta={"command": "search"})
+    record_funnel_event("cli_auth_wall_hit", session_id=sid, meta={"command": "search"})
+    record_funnel_event("cli_command_result", session_id=sid, meta={"command": "search", "success": False})
+
+    data = dropoff_summary(days=30, include_test=True)
+    assert data["cli_sessions"]["attempted"] >= 1
+    assert data["cli_sessions"]["hit_auth_wall"] >= 1
+    assert "command_distribution" in data
+    assert "auth_wall_by_command" in data
+    assert "command_results" in data
+
+    r = client.get("/analytics/dropoff")
+    assert r.status_code == 200
+    body = r.json()
+    assert "cli_sessions" in body
+    assert "command_distribution" in body
 
 
 def test_pam_journey_synthetic():
