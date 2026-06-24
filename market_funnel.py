@@ -648,7 +648,6 @@ def dropoff_summary(*, days: int = 30, include_test: bool = False) -> dict[str, 
     total_auth_wall = len(auth_wall_hits)
 
     # Sessions that hit auth wall and eventually registered
-    wall_sids = {h["session_id"] for h in auth_wall_hits}
     converted_after_wall = sum(
         1 for h in auth_wall_hits if h.get("username")
     )
