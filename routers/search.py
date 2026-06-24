@@ -159,6 +159,8 @@ class SearchRequest(BaseModel):
 class BasketRequest(BaseModel):
     items: list[dict]
     stores: list[str] | None = None
+    line: str | None = None
+    country: str | None = None
 
 
 @router.post("/products/search")
@@ -444,6 +446,11 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
     _record_tool_call(authorization, "basket_compare", username)
     stores = body.stores or list(STORES.keys())
     stores = [s for s in stores if s in STORES]
+    if body.line and body.line in LINES:
+        stores = [s for s in stores if STORES.get(s, {}).get("line") == body.line]
+    if body.country:
+        cc = body.country.strip().upper()
+        stores = [s for s in stores if STORES.get(s, {}).get("country") == cc]
 
     parallel_batch = int(os.getenv("BASKET_PARALLEL_BATCH", "8"))
     timeout_s = float(os.getenv("BASKET_TIMEOUT", "25.0"))
