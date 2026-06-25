@@ -949,6 +949,149 @@ def billing_pricing_stats():
     }
 
 
+_PROCURE_BILLING_METHODS = frozenset({"paypal", "mercadopago", "yape", "plin"})
+
+
+@router.post("/billing/procure-subscribe")
+async def billing_procure_subscribe(body: dict, authorization: str | None = Header(None)):
+    """Procure Copilot subscription — PayPal, Mercado Pago, Yape, or Plin."""
+    from procure_billing import (
+        PROCURE_PLANS,
+        procure_mp_checkout_enabled,
+        procure_plan_config,
+        procure_price_pen,
+        procure_tier_from_request_id,
+        tier_to_procure_plan,
+    )
+
+    try:
+        check_rate_limit("billing-procure-subscribe")
+        email = (body.get("email") or "").strip().lower()
+        lang = (body.get("lang") or "en").strip().lower()[:2]
+        plan_slug = (body.get("plan") or "pro").strip().lower()
+        method = (body.get("payment_method") or "paypal").strip().lower()
+        if method not in _PROCURE_BILLING_METHODS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"payment_method must be one of: {', '.join(sorted(_PROCURE_BILLING_METHODS))}",
+            )
+        if method != "paypal" and not procure_mp_checkout_enabled():
+            raise HTTPException(
+                status_code=501,
+                detail=(
+                    "Procure checkout local (Mercado Pago / Yape / Plin) no está habilitado aún"
+                    if lang == "es"
+                    else "Procure local checkout (Mercado Pago / Yape / Plin) is not enabled yet"
+                ),
+            )
+        if plan_slug not in PROCURE_PLANS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"plan must be one of: {', '.join(sorted(PROCURE_PLANS))}",
+            )
+        if not email or not _EMAIL_RE.match(email):
+            raise HTTPException(status_code=400, detail="valid email is required")
+
+        auth_user = ""
+        if authorization:
+            try:
+                auth_user = require_user(authorization)
+            except HTTPException:
+                auth_user = ""
+
+        username = _resolve_pro_username(
+            email,
+            body_username=(body.get("username") or ""),
+            auth_username=auth_user,
+        )
+
+        cfg = procure_plan_config(plan_slug)
+        amount_usd = float(cfg["amount"])
+        prefix = cfg["request_prefix"]
+
+        if method == "paypal":
+            paypal_plan_id = cfg.get("paypal_plan_id", "")
+            if not paypal_plan_id:
+                raise HTTPException(status_code=501, detail=f"PayPal plan not configured for {plan_slug}")
+            try:
+                from market_connectors.paypal_payments import create_paypal_subscription
+                out = await create_paypal_subscription(
+                    plan_id=paypal_plan_id,
+                    email=email,
+                    username=username,
+                    request_prefix=prefix,
+                )
+                if out.get("ok"):
+                    out["procure_plan"] = plan_slug
+                    return out
+            except Exception as exc:
+                logger.warning("billing_procure_subscribe paypal failed: %s", exc)
+            raise HTTPException(status_code=502, detail="PayPal subscription unavailable")
+
+        amount_pen = procure_price_pen(plan_slug)
+        req = db_create_subscription_request(username, email, "")
+        request_id = req["id"]
+        request_id_procure = f"{prefix}-{request_id}"
+
+        if method == "mercadopago":
+            from market_connectors.mercadopago_payments import create_preference
+            mp_return = os.getenv("PROCURE_MP_SUCCESS_URL", f"https://cli-market.dev/?mp=success&audience=procure&ref={request_id_procure}#procure")
+            mp = await create_preference(
+                amount_pen,
+                "PEN",
+                f"CLI-Market-{request_id_procure}",
+                title=cfg["label"],
+                success_url=mp_return.replace("{ref}", request_id_procure),
+                pending_url=f"https://cli-market.dev/?mp=pending&audience=procure&ref={request_id_procure}#procure",
+                failure_url=f"https://cli-market.dev/?mp=failure&audience=procure&ref={request_id_procure}#procure",
+            )
+            if not mp.get("checkout_url"):
+                raise HTTPException(status_code=502, detail=mp.get("error", "Mercado Pago error"))
+            return {
+                "ok": True,
+                "request_id": request_id_procure,
+                "username": username,
+                "email": email,
+                "payment_method": "mercadopago",
+                "procure_plan": plan_slug,
+                "amount_pen": amount_pen,
+                "amount_usd": amount_usd,
+                "checkout_url": mp["checkout_url"],
+                "approve_url": mp["checkout_url"],
+                "auto_activate": True,
+            }
+
+        phone = os.getenv("YAPE_PLIN_NUMBER", "").strip()
+        if phone:
+            checkout_url = f"yape://pay?phone={phone}&amount={amount_pen:.2f}&ref={request_id_procure}"
+        else:
+            checkout_url = f"https://cli-market.dev/?method={method}&amount={amount_pen:.2f}&ref={request_id_procure}#procure"
+        return {
+            "ok": True,
+            "request_id": request_id_procure,
+            "username": username,
+            "email": email,
+            "payment_method": method,
+            "procure_plan": plan_slug,
+            "amount_pen": amount_pen,
+            "amount_usd": amount_usd,
+            "checkout_url": checkout_url,
+            "auto_activate": False,
+            "message": (
+                f"Transfiere S/ {amount_pen:.2f} con referencia {request_id_procure}."
+                if lang == "es"
+                else f"Transfer S/ {amount_pen:.2f} with reference {request_id_procure}."
+            ),
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("billing_procure_subscribe failed")
+        raise HTTPException(status_code=503, detail=f"billing unavailable: {e}") from e
+
+
 @router.post("/billing/checkout")
 def billing_checkout(authorization: str | None = Header(None)):
     """Stripe Checkout for Pro subscription upgrade."""
