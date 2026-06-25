@@ -1014,19 +1014,97 @@ async def billing_procure_subscribe(body: dict, authorization: str | None = Head
             if not paypal_plan_id:
                 raise HTTPException(status_code=501, detail=f"PayPal plan not configured for {plan_slug}")
             try:
-                from market_connectors.paypal_payments import create_paypal_subscription
-                out = await create_paypal_subscription(
-                    plan_id=paypal_plan_id,
-                    email=email,
-                    username=username,
-                    request_prefix=prefix,
+                import httpx
+                from market_connectors.paypal_payments import PAYPAL_API, _ensure_billing_plan, _get_access_token
+                from market_connectors.email_outbound import send_pro_subscribe_pending_email
+
+                return_url = os.getenv(
+                    "PROCURE_SUBSCRIBE_RETURN_URL",
+                    "https://cli-market.dev/?sub=success&audience=procure#procure",
                 )
-                if out.get("ok"):
-                    out["procure_plan"] = plan_slug
-                    return out
+                cancel_url = os.getenv(
+                    "PROCURE_SUBSCRIBE_CANCEL_URL",
+                    "https://cli-market.dev/?sub=cancelled&audience=procure#procure",
+                )
+                token = await _get_access_token()
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                    plan_id = await _ensure_billing_plan(
+                        token,
+                        client,
+                        amount_usd,
+                        "USD",
+                        env_plan_id=paypal_plan_id,
+                        product_name=cfg["label"],
+                        plan_name=f"{cfg['label']} Monthly",
+                        description=f"${amount_usd:.0f}/month — Procure Copilot",
+                    )
+                    p3 = await client.post(
+                        f"{PAYPAL_API}/v1/billing/subscriptions",
+                        json={
+                            "plan_id": plan_id,
+                            "custom_id": username,
+                            "application_context": {
+                                "return_url": return_url,
+                                "cancel_url": cancel_url,
+                                "brand_name": "Procure Copilot",
+                                "user_action": "SUBSCRIBE_NOW",
+                                "shipping_preference": "NO_SHIPPING",
+                            },
+                        },
+                        headers=h,
+                    )
+                    if p3.status_code not in (200, 201):
+                        logger.warning("billing_procure_subscribe paypal error: %s", p3.text)
+                        raise HTTPException(status_code=502, detail="PayPal subscription unavailable")
+                    data = p3.json()
+                    approve_link = next(
+                        (link["href"] for link in data.get("links", []) if link.get("rel") == "approve"),
+                        None,
+                    )
+                    sub_id = data["id"]
+
+                db_save_billing_pending(sub_id, "paypal", username, cfg["tier"])
+                req = db_create_subscription_request(username, email, approve_link or "", prefix=prefix)
+                mail = send_pro_subscribe_pending_email(
+                    to_email=email,
+                    username=username,
+                    approve_url=approve_link or "",
+                    request_id=req["id"],
+                )
+                if mail.get("sent"):
+                    db_mark_subscription_request_emailed(req["id"])
+                try:
+                    from market_funnel import record_funnel_event
+                    record_funnel_event(
+                        "procure_subscribe",
+                        username=username,
+                        meta={"email": email, "source": "procure_subscribe_paypal", "plan": plan_slug, "tier": cfg["tier"]},
+                        dedupe=False,
+                    )
+                except Exception:
+                    pass
+                return {
+                    "ok": True,
+                    "subscription_id": sub_id,
+                    "approve_url": approve_link,
+                    "plan": cfg["label"],
+                    "tier": cfg["tier"],
+                    "procure_plan": plan_slug,
+                    "amount": f"${amount_usd:.0f}/mo",
+                    "username": username,
+                    "auto_activate": True,
+                    "request_id": req["id"],
+                    "email_sent": mail.get("sent", False),
+                    "payment_method": "paypal",
+                }
+            except HTTPException:
+                raise
+            except ValueError as exc:
+                raise HTTPException(status_code=501, detail=str(exc)) from exc
             except Exception as exc:
                 logger.warning("billing_procure_subscribe paypal failed: %s", exc)
-            raise HTTPException(status_code=502, detail="PayPal subscription unavailable")
+                raise HTTPException(status_code=502, detail="PayPal subscription unavailable") from exc
 
         amount_pen = procure_price_pen(plan_slug)
         req = db_create_subscription_request(username, email, "")
