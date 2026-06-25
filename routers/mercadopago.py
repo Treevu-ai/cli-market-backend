@@ -4,20 +4,107 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from market_core import (
+    db_find_subscription_request,
+    db_get_user_email,
+    db_mark_subscription_request_activated,
+    db_mark_subscription_requests_activated_for_user,
     db_set_order_gateway_ref,
+    db_set_subscription,
     db_update_order_status,
 )
 from server_deps import require_api_key
 
 from routers.payments import _prepare_pending_order
 
+_SUBSCRIPTION_REF_RE = re.compile(
+    r"CLI-Market-(?P<id>(?:PRO|PCS|PCP|PCB)-[A-Z0-9]+)",
+    re.I,
+)
+_BARE_SUBSCRIPTION_REF_RE = re.compile(r"^(PRO|PCS|PCP|PCB)-[A-Z0-9]+$", re.I)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["payments"])
+
+
+def _parse_subscription_request_ref(external_reference: str) -> str | None:
+    """Parse CLI-Market subscription billing refs: PRO-, PCS-, PCP-, PCB-."""
+    ref = (external_reference or "").strip()
+    if not ref:
+        return None
+    if _BARE_SUBSCRIPTION_REF_RE.match(ref):
+        return ref.upper()
+    m = _SUBSCRIPTION_REF_RE.search(ref)
+    return m.group("id").upper() if m else None
+
+
+def _is_procure_subscription_request_id(request_id: str) -> bool:
+    return (request_id or "").split("-", 1)[0].upper() in ("PCS", "PCP", "PCB")
+
+
+def _activate_procure_from_request(request_id: str, *, source: str) -> list[str]:
+    """Mark Procure subscription request paid and activate procure_* tier."""
+    from procure_billing import procure_tier_from_request_id
+
+    req = db_find_subscription_request(request_id=request_id)
+    if not req:
+        return [f"request_not_found:{request_id}"]
+    if (req.get("status") or "").lower() == "activated":
+        return [f"already_activated:{request_id}"]
+
+    username = (req.get("username") or "").strip()
+    if not username:
+        return [f"request_no_user:{request_id}"]
+
+    tier = procure_tier_from_request_id(request_id)
+    if not tier:
+        return [f"unknown_procure_request:{request_id}"]
+
+    db_set_subscription(username, tier)
+    db_mark_subscription_request_activated(request_id, username)
+    db_mark_subscription_requests_activated_for_user(username)
+    actions = [f"{tier}_activated:{username}", f"request_closed:{request_id}"]
+
+    try:
+        from market_funnel import record_funnel_event
+        record_funnel_event(
+            "activated",
+            username=username,
+            meta={"source": source, "request_id": request_id, "tier": tier},
+            dedupe=True,
+        )
+    except Exception:
+        pass
+
+    email = (req.get("email") or "").strip() or db_get_user_email(username) or ""
+    try:
+        from market_connectors.email_outbound import send_credentials_email
+        from market_core import db_create_api_key
+        key_data = db_create_api_key(username, "read_write", tier)
+        if email:
+            send_credentials_email(
+                to_email=email,
+                username=username,
+                api_key=key_data["key"],
+                plan=tier,
+            )
+            actions.append(f"credentials_emailed:{email}")
+        else:
+            actions.append(f"credentials_generated_no_email:{key_data['prefix']}")
+    except Exception:
+        logger.exception("procure credentials email failed for %s", username)
+        actions.append("credentials_email_failed")
+
+    logger.info(
+        "procure activated username=%s tier=%s request_id=%s source=%s",
+        username, tier, request_id, source,
+    )
+    return actions
 
 
 @router.post("/checkout/mercadopago")
@@ -73,8 +160,30 @@ async def _handle_mercadopago_payment(payment_id: str) -> dict:
         return {"payment_id": payment_id, "error": payment["error"]}
     status = payment.get("status", "")
     external = payment.get("external_reference", "")
-    market_order_id = parse_external_order_id(external)
     actions: list[str] = []
+
+    # Subscription request payment (PCS-, PCP-, PCB- → Procure; PRO- → CLI Market Pro)
+    sub_request_id = _parse_subscription_request_ref(external)
+    if status == "approved" and sub_request_id:
+        if _is_procure_subscription_request_id(sub_request_id):
+            actions.extend(_activate_procure_from_request(sub_request_id, source="mercadopago_webhook"))
+        else:
+            # PRO- prefix: activation is handled by the primary world server; log only
+            actions.append(f"pro_request_received:{sub_request_id}")
+        logger.info(
+            "mercadopago_webhook subscription request=%s payment_id=%s actions=%s",
+            sub_request_id, payment_id, actions,
+        )
+        return {
+            "payment_id": payment_id,
+            "status": status,
+            "external_reference": external,
+            "subscription_request_id": sub_request_id,
+            "actions": actions,
+        }
+
+    # Cart order payment (ORD-xxx)
+    market_order_id = parse_external_order_id(external)
     if status == "approved" and market_order_id:
         if db_update_order_status(market_order_id, "paid"):
             db_set_order_gateway_ref(market_order_id, str(payment_id))
