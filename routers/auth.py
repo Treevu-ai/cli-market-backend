@@ -1,14 +1,15 @@
 """Authentication, API keys, and subscription tier endpoints.
 
 Endpoints:
-  POST   /auth/login              Username/password → session token
-  GET    /auth/whoami             Token → username + tier
-  POST   /auth/keys               Create API key (sk-...) — scopes: read | read_write
-  GET    /auth/keys               List user's API keys (prefix only, no secret)
-  DELETE /auth/keys/{key_id}      Revoke an API key
-  GET    /auth/subscription       Current tier + limits
-  POST   /auth/referral           Register/refresh a referral code (install tracking)
-  GET    /auth/referral/stats     Referral stats for the authenticated user
+  POST   /auth/login                     Username/password → session token
+  GET    /auth/whoami                    Token → username + tier
+  POST   /auth/keys                      Create API key (sk-...) — scopes: read | read_write
+  GET    /auth/keys                      List user's API keys (prefix only, no secret)
+  DELETE /auth/keys/{key_id}             Revoke an API key
+  GET    /auth/subscription              Current tier + limits
+  POST   /auth/referral                  Register/refresh a referral code (install tracking)
+  GET    /auth/referral/stats            Referral stats for the authenticated user
+  POST   /auth/procure-magic-exchange    Exchange one-time Procure onboarding token for API credentials
 """
 
 from __future__ import annotations
@@ -56,6 +57,10 @@ class CreateApiKeyRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class ProcureMagicExchangeRequest(BaseModel):
+    token: str = ""
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -293,3 +298,36 @@ def referral_stats(authorization: str | None = Header(None)):
         }
     finally:
         db.close()
+
+
+@router.post("/auth/procure-magic-exchange")
+def procure_magic_exchange(body: ProcureMagicExchangeRequest):
+    """Exchange a one-time Procure onboarding token for API credentials."""
+    from procure_magic import exchange_procure_magic_token, procure_magic_enabled
+
+    if not procure_magic_enabled():
+        raise HTTPException(status_code=501, detail="Procure magic link not configured")
+    token = (body.token or "").strip()
+    if not token:
+        raise HTTPException(status_code=422, detail="token is required")
+    try:
+        result = exchange_procure_magic_token(token)
+        try:
+            from market_funnel import record_funnel_event
+            record_funnel_event(
+                "procure_magic_exchange_ok",
+                username=result.get("username"),
+                meta={"tier": result.get("tier")},
+            )
+        except Exception:
+            pass
+        return result
+    except ValueError as exc:
+        try:
+            from market_funnel import record_funnel_event
+            detail = str(exc)
+            reason = "expired" if "expir" in detail else "used" if "used" in detail else "invalid"
+            record_funnel_event("procure_magic_exchange_fail", meta={"reason": reason})
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
