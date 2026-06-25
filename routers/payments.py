@@ -970,8 +970,6 @@ async def billing_procure_subscribe(body: dict, authorization: str | None = Head
         lang = (body.get("lang") or "en").strip().lower()[:2]
         plan_slug = (body.get("plan") or "pro").strip().lower()
         method = (body.get("payment_method") or "paypal").strip().lower()
-        display_name = (body.get("display_name") or body.get("name") or "").strip()
-
         if method not in _PROCURE_BILLING_METHODS:
             raise HTTPException(
                 status_code=400,
