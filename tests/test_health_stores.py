@@ -21,4 +21,4 @@ def test_list_stores_includes_woocommerce_pilots():
     body = r.json()
     assert body["total"] == len(STORES)
     assert "nunaorganica_pe" in body["stores"]
-    assert body["stores"]["nunaorganica_pe"]["line_name"] in ("Supermercados", "supermercados")
+    assert body["stores"]["nunaorganica_pe"]["line_name"].casefold() == "supermercados"
