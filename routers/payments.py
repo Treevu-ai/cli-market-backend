@@ -1011,8 +1011,6 @@ async def billing_procure_subscribe(body: dict, authorization: str | None = Head
 
         if method == "paypal":
             paypal_plan_id = cfg.get("paypal_plan_id", "")
-            if not paypal_plan_id:
-                raise HTTPException(status_code=501, detail=f"PayPal plan not configured for {plan_slug}")
             try:
                 import httpx
                 from market_connectors.paypal_payments import PAYPAL_API, _ensure_billing_plan, _get_access_token
