@@ -1037,6 +1037,10 @@ async def billing_procure_subscribe(body: dict, authorization: str | None = Head
                         plan_name=f"{cfg['label']} Monthly",
                         description=f"${amount_usd:.0f}/month — Procure Copilot",
                     )
+                    logger.info(
+                        "procure paypal plan_id=%s plan_slug=%s env_var=%s",
+                        plan_id, plan_slug, cfg["paypal_env"],
+                    )
                     p3 = await client.post(
                         f"{PAYPAL_API}/v1/billing/subscriptions",
                         json={
