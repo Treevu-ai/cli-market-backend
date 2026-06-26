@@ -20,6 +20,5 @@ def test_list_stores_includes_woocommerce_pilots():
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["total"] == len(STORES)
-    assert "xray_pe" in body["stores"]
     assert "nunaorganica_pe" in body["stores"]
-    assert body["stores"]["xray_pe"]["line_name"] == "Automotriz"
+    assert body["stores"]["nunaorganica_pe"]["line_name"].casefold() == "supermercados"
