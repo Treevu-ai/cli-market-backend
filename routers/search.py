@@ -514,15 +514,41 @@ def product_stock(product_id: str, store: str, authorization: str | None = Heade
 
 @router.get("/products/delivery/{product_id}")
 def product_delivery(product_id: str, store: str, zipcode: str = ""):
-    """Placeholder delivery info — currently just returns the store URL."""
+    """Referential delivery estimate — VTEX defaults/simulation when available."""
     store_info = STORES.get(store, {})
+    message = "Estimación referencial. Confirmar plazo, costo y cobertura con el retailer."
+    fee = None
+    source = None
+    delivery_available = False
+    estimated_days = "—"
+
+    try:
+        from market_core.market_tco import simulate_delivery_quote
+
+        quote = simulate_delivery_quote(
+            store,
+            subtotal=0.0,
+            product_id=product_id,
+            zipcode=zipcode or None,
+        )
+        if quote.get("available"):
+            delivery_available = True
+            fee = quote.get("fee")
+            source = quote.get("source") or "referential"
+            estimated_days = "2-5"
+    except Exception:
+        pass
+
     return {
         "product_id": product_id,
         "store": store,
         "store_name": store_info.get("name", store),
-        "delivery_available": True,
-        "estimated_days": "2-5",
-        "message": "Delivery integration pending. Check the store directly.",
+        "delivery_available": delivery_available,
+        "estimated_days": estimated_days,
+        "fee": fee,
+        "source": source,
+        "referential": True,
+        "message": message,
         "store_url": f"{store_info.get('base','')}/{product_id}/p",
     }
 
