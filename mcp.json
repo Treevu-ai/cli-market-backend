@@ -53,7 +53,11 @@
     "market_favorites",
     "market_notify",
     "market_exchange",
-    "market_delivery"
+    "market_delivery",
+    "market_intel_brief",
+    "market_intel_pulse",
+    "market_forecast",
+    "market_arbitrage"
   ],
   "keywords": [
     "vtex",

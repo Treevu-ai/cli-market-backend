@@ -44,7 +44,9 @@ _AI_PLUGIN = {
         f"Use it to: search products across {RETAILERS_VERIFIED} retailers in 8 countries "
         "(market_search), compare prices for the same product across stores (market_compare), "
         "discover trending products (market_trending), get inflation and basket stress data "
-        "(market_inflation), or get a full market intelligence brief (market_intel_brief). "
+        "(market_inflation), get a full market intelligence brief (market_intel_brief), "
+        "weekly Commerce Pulse report (market_intel_pulse), price forecasts (market_forecast), "
+        "or cross-border arbitrage (market_arbitrage). "
         "Always pass country codes in ISO 3166-1 alpha-2: PE=Peru, AR=Argentina, BR=Brazil, "
         "MX=Mexico, CO=Colombia, CL=Chile, IT=Italy, FR=France. "
         "Prices are in local currency: PEN (Peru), ARS (Argentina), BRL (Brazil), MXN (Mexico), COP (Colombia), CLP (Chile). "
@@ -230,6 +232,62 @@ _TOOLS_OPENAPI = {
                 "responses": {"200": {"description": "Market intelligence scores (0-100)"}},
             }
         },
+        "/v1/intel/brief": {
+            "get": {
+                "operationId": "market_intel_brief",
+                "summary": "Executive market intelligence brief",
+                "parameters": [
+                    {"name": "country", "in": "query", "schema": {"type": "string", "default": "PE"}},
+                    {"name": "days", "in": "query", "schema": {"type": "integer", "default": 7}},
+                ],
+                "responses": {"200": {"description": "Aggregated intel brief"}},
+            }
+        },
+        "/v1/intel/pulse": {
+            "get": {
+                "operationId": "market_intel_pulse",
+                "summary": "Agentic Commerce Pulse weekly report",
+                "parameters": [
+                    {"name": "country", "in": "query", "schema": {"type": "string", "default": "PE"}},
+                    {"name": "format", "in": "query", "schema": {"type": "string", "enum": ["json", "markdown"]}},
+                ],
+                "responses": {"200": {"description": "Weekly research report"}},
+            }
+        },
+        "/v1/intel/forecast": {
+            "get": {
+                "operationId": "market_forecast",
+                "summary": "Price forecast and procurement signal",
+                "parameters": [
+                    {"name": "product", "in": "query", "required": True, "schema": {"type": "string"}},
+                    {"name": "country", "in": "query", "schema": {"type": "string", "default": "PE"}},
+                    {"name": "horizon_days", "in": "query", "schema": {"type": "integer", "default": 21}},
+                ],
+                "responses": {"200": {"description": "Forecast with buy_today/wait/neutral"}},
+            }
+        },
+        "/v1/intel/arbitrage": {
+            "get": {
+                "operationId": "market_arbitrage",
+                "summary": "Cross-border LatAm arbitrage",
+                "parameters": [
+                    {"name": "product", "in": "query", "schema": {"type": "string"}},
+                    {"name": "canonical_id", "in": "query", "schema": {"type": "string"}},
+                    {"name": "countries", "in": "query", "schema": {"type": "string"}},
+                ],
+                "responses": {"200": {"description": "Arbitrage opportunities"}},
+            }
+        },
+        "/public/commerce-pulse": {
+            "get": {
+                "operationId": "market_commerce_pulse_public",
+                "summary": "Public Commerce Pulse (no auth)",
+                "parameters": [
+                    {"name": "country", "in": "query", "schema": {"type": "string", "default": "PE"}},
+                ],
+                "responses": {"200": {"description": "Public weekly pulse"}},
+            }
+        },
         "/analytics/trending": {
             "get": {
                 "operationId": "market_trending",
@@ -301,7 +359,17 @@ def tools_openapi_shop():
 def tools_openapi_intel():
     """OpenAPI spec for the Intel bundle — inflation, scores, stats, export."""
     intel_paths = {k: v for k, v in _TOOLS_OPENAPI["paths"].items()
-                   if k in ("/v1/intel/inflation", "/v1/intel/scores", "/analytics/trending", "/stores")}
+                   if k in (
+                       "/v1/intel/inflation",
+                       "/v1/intel/scores",
+                       "/v1/intel/brief",
+                       "/v1/intel/pulse",
+                       "/v1/intel/forecast",
+                       "/v1/intel/arbitrage",
+                       "/public/commerce-pulse",
+                       "/analytics/trending",
+                       "/stores",
+                   )}
     return JSONResponse(content=_make_spec(
         "CLI Market — Market Intel Agent",
         ("LATAM retail market intelligence for analysts and fintechs. "

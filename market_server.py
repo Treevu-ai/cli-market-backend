@@ -187,6 +187,7 @@ from routers.funnel import router as funnel_router
 from routers.observatory import router as observatory_router
 from routers.health import router as health_router
 from routers.index_api import router as index_router
+from routers.intelligence_web import router as intelligence_web_router
 from routers.intel import router as intel_router
 from routers.media import router as media_router
 from routers.misc import router as misc_router
@@ -219,6 +220,7 @@ for r in (
     health_router,
     index_router,
     intel_router,
+    intelligence_web_router,
     media_router,
     misc_router,
     orders_router,
