@@ -12,7 +12,7 @@ Usage in claude.ai (Add MCP server):
 
 Tool tiers:
   Free  — search, compare, stores, trending, inflation, scores, intel_brief,
-           whoami, stats, barcode, discover
+           intel_pulse, forecast, arbitrage, whoami, stats, barcode, discover
   Pro   — basket, basket_stress, price_risk, favorites, price_alerts,
            export, ask, add, cart, cart_update, checkout, orders
            (returns upgrade prompt if tier is free)
@@ -221,6 +221,57 @@ _TOOLS = [
         },
     },
     {
+        "name": "market_intel_pulse",
+        "description": (
+            "Agentic Commerce Pulse — weekly BBVA-style research report with executive "
+            "highlights, Nielsen KPIs (PVI, BAI, PDI, RCS), and publishable markdown narrative."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "country": {"type": "string", "default": "PE"},
+                "days": {"type": "integer", "default": 7},
+                "lang": {"type": "string", "enum": ["es", "en"], "default": "es"},
+            },
+        },
+    },
+    {
+        "name": "market_forecast",
+        "description": (
+            "Price forecast from price_history with procurement signal: buy_today, wait, or neutral. "
+            "Linear trend over lookback window — use for staple procurement timing."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["product"],
+            "properties": {
+                "product": {"type": "string", "description": "Product query, e.g. leche, arroz"},
+                "country": {"type": "string", "default": "PE"},
+                "horizon_days": {"type": "integer", "default": 21},
+                "lookback_days": {"type": "integer", "default": 90},
+            },
+        },
+    },
+    {
+        "name": "market_arbitrage",
+        "description": (
+            "Cross-border LatAm arbitrage: cheapest vs priciest country for a product in USD. "
+            "Optional Golden Record via canonical_id. Excludes duties and logistics."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "product": {"type": "string", "description": "Product query, e.g. arroz"},
+                "canonical_id": {"type": "string", "description": "Golden Record prod_* ID"},
+                "countries": {
+                    "type": "string",
+                    "description": "Comma-separated ISO codes, e.g. PE,MX,CL",
+                },
+                "min_spread_pct": {"type": "number", "default": 10.0},
+            },
+        },
+    },
+    {
         "name": "market_stats",
         "description": "Platform stats: total products indexed, stores active, data freshness, moat health.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -405,6 +456,22 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
             r = await client.get(f"{_API_BASE}/v1/intel/scores", params={"country": args.get("country")}, headers=headers)
         elif name == "market_intel_brief":
             r = await client.get(f"{_API_BASE}/v1/intel/brief", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_intel_pulse":
+            r = await client.get(f"{_API_BASE}/v1/intel/pulse", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_forecast":
+            params = {k: v for k, v in args.items() if v is not None}
+            r = await client.get(f"{_API_BASE}/v1/intel/forecast", params=params, headers=headers)
+        elif name == "market_arbitrage":
+            params = {}
+            if args.get("canonical_id"):
+                params["canonical_id"] = args["canonical_id"]
+            if args.get("product"):
+                params["product"] = args["product"]
+            if args.get("countries"):
+                params["countries"] = args["countries"]
+            if args.get("min_spread_pct") is not None:
+                params["min_spread_pct"] = args["min_spread_pct"]
+            r = await client.get(f"{_API_BASE}/v1/intel/arbitrage", params=params, headers=headers)
         elif name == "market_stats":
             r = await client.get(f"{_API_BASE}/analytics/stats", headers=headers)
         elif name == "market_whoami":
