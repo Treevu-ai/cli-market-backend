@@ -28,6 +28,7 @@ from market_core import (
     STORES, LINES, COUNTRIES, LANG_FILE, SESSION_FILE, get_token, api,
     fmt_price, store_color, save_last_search, load_last_search,
 )
+from market_brief import brief_footer, brief_title, build_brief_summary, format_brief_lines
 from market_stats import COUNTRIES as MS_COUNTRIES, MCP_TOOLS, RETAILERS_VERIFIED
 
 console = Console()
@@ -66,6 +67,7 @@ T = {
         "hello": "Onboarding post-install y próximos pasos",
         "share": "Link de referido para compartir CLI Market",
         "upgrade": "Solicitar Pro — email con link de pago",
+        "brief": "Resumen ejecutivo del mercado (Intelligence Terminal)",
     },
     "en": {
         "desc": "Agentic Market CLI — purchases from the terminal.",
@@ -97,6 +99,7 @@ T = {
         "hello": "Post-install onboarding and next steps",
         "share": "Referral link to share CLI Market",
         "upgrade": "Request Pro — email with payment link",
+        "brief": "Executive market brief (Intelligence Terminal)",
     },
 }
 
@@ -126,6 +129,7 @@ WELCOME_BANNER = """\n[#00FF88]  ╭──────────────�
      [#555555]pip install cli-market[/]
      [#555555]github.com/treevu-ai/cli-market-world[/]
 
+     [#00FF88]market brief[/]        [#888888]resumen ejecutivo del mercado[/]
      [#00FF88]market login[/]        [#888888]autentícate[/]
      [#00FF88]market search[/]       [#888888]busca en todos los retailers[/]
      [#00FF88]market compare[/]      [#888888]compara precios entre países[/]
@@ -147,6 +151,7 @@ WELCOME_BANNER_EN = """\n[#00FF88]  ╭─────────────�
      [#555555]pip install cli-market[/]
      [#555555]github.com/treevu-ai/cli-market-world[/]
 
+     [#00FF88]market brief[/]        [#888888]executive market summary[/]
      [#00FF88]market login[/]        [#888888]authenticate[/]
      [#00FF88]market search[/]       [#888888]search across all retailers[/]
      [#00FF88]market compare[/]      [#888888]cross-country price comparison[/]
@@ -534,6 +539,49 @@ def cmd_basket(args):
     if best:
         console.print(f"\n[#00FF88]✓ Mejor opción: {comp[best]['store_name']} — {comp[best]['currency']} {comp[best]['total']:.2f}[/]")
 
+def cmd_brief(args):
+    """Executive market brief — Bloomberg-style entry point for the Intelligence Terminal."""
+    params = []
+    if args.country:
+        params.append(f"country={args.country}")
+    if args.line:
+        params.append(f"line={args.line}")
+    if getattr(args, "days", None):
+        params.append(f"days={args.days}")
+    qs = "&".join(params)
+    path = f"/v1/intel/brief?{qs}" if qs else "/v1/intel/brief"
+    status_msg = "Loading market brief..." if get_lang() == "en" else "Cargando brief de mercado..."
+    with console.status(f"[cyan]{status_msg}"):
+        data = cli_api("GET", path)
+
+    summary = build_brief_summary(data)
+    lang = get_lang()
+
+    if getattr(args, "json", False):
+        console.print(json.dumps({**data, "executive": summary}, indent=2, ensure_ascii=False))
+        return
+
+    title = brief_title(summary["country"], lang=lang)
+    rows = format_brief_lines(summary, lang=lang)
+    headline = summary.get("headline", "")
+
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column("metric", style="dim", min_width=28)
+    table.add_column("value", style="bold")
+    for label, value in rows:
+        table.add_row(label, value)
+
+    console.print(
+        Panel(
+            table,
+            title=f"[bold #00FF88]{title}[/]",
+            subtitle=f"[bold]{headline}[/]",
+            border_style="#00FF88",
+        )
+    )
+    console.print(f"\n[dim]{brief_footer(lang=lang)}[/]")
+
+
 def cmd_inflation(args):
     params = []
     if args.country: params.append(f"country={args.country}")
@@ -734,9 +782,9 @@ def cmd_alerts(args):
 
 def cmd_about(args):
     console.print(Panel.fit(
-        "[bold #00FF88]CLI Market[/] — Infraestructura de comercio para agentes IA.\n\n"
+        "[bold #00FF88]CLI Market[/] — Intelligence layer for agentic commerce in LatAm.\n\n"
         f"[#888888]Un solo pip install. Una API. {RETAILERS_VERIFIED} retailers en {MS_COUNTRIES} países. {MCP_TOOLS} MCP tools.[/]\n"
-        "[#888888]Comparación de precios cross-border. Data moat con precios reales.[/]\n"
+        "[#888888]Empezá con [cyan]market brief[/] — resumen ejecutivo en 15 segundos.[/]\n"
         "[#888888]Open source (MIT). Gratis para developers.[/]\n\n"
         "[dim]github.com/Treevu-ai/cli-market-world[/]",
         border_style="#00FF88"
@@ -764,9 +812,10 @@ def cmd_hello(args):
             f"Commerce API for AI agents — {RETAILERS_VERIFIED} retailers, {MCP_TOOLS} MCP tools.\n\n"
             "[bold]Next steps:[/]\n"
             "  1. [cyan]market login[/] — free API access\n"
-            "  2. [cyan]market search \"milk\" --country PE[/] — try a search\n"
-            "  3. Connect MCP in Cursor/Claude → [cyan]https://cli-market.dev/tools[/]\n"
-            "  4. [cyan]market share[/] — referral link\n\n"
+            "  2. [cyan]market brief -c PE[/] — executive market summary\n"
+            "  3. [cyan]market search \"milk\" --country PE[/] — try a search\n"
+            "  4. Connect MCP in Cursor/Claude → [cyan]https://cli-market.dev/tools[/]\n"
+            "  5. [cyan]market share[/] — referral link\n\n"
             "[dim]Docs: cli-market.dev/llms.txt · GitHub: Treevu-ai/cli-market-world[/]",
             title="CLI Market",
             border_style="#00FF88",
@@ -777,9 +826,10 @@ def cmd_hello(args):
             f"Infraestructura de comercio para agentes IA — {RETAILERS_VERIFIED} retailers, {MCP_TOOLS} herramientas MCP.\n\n"
             "[bold]Próximos pasos:[/]\n"
             "  1. [cyan]market login[/] — acceso gratis\n"
-            "  2. [cyan]market search \"leche\" --country PE[/] — prueba una búsqueda\n"
-            "  3. Conecta MCP en Cursor/Claude → [cyan]https://cli-market.dev/tools[/]\n"
-            "  4. [cyan]market share[/] — link de referido\n\n"
+            "  2. [cyan]market brief -c PE[/] — resumen ejecutivo del mercado\n"
+            "  3. [cyan]market search \"leche\" --country PE[/] — prueba una búsqueda\n"
+            "  4. Conecta MCP en Cursor/Claude → [cyan]https://cli-market.dev/tools[/]\n"
+            "  5. [cyan]market share[/] — link de referido\n\n"
             "[dim]Docs: cli-market.dev/llms.txt · GitHub: Treevu-ai/cli-market-world[/]",
             title="CLI Market",
             border_style="#00FF88",
@@ -945,6 +995,12 @@ def main():
     p.add_argument("items", nargs="+", help="Productos con cantidad, ej: leche:2 arroz:1")
     p.add_argument("--country", "-c", choices=list(COUNTRIES.keys()), default=None)
 
+    # brief — Intelligence Terminal entry point
+    p = sub.add_parser("brief", help=t("brief"))
+    p.add_argument("--country", "-c", choices=list(COUNTRIES.keys()), default="PE")
+    p.add_argument("--line", choices=list(LINES.keys()), default=None)
+    p.add_argument("--days", "-d", type=int, default=7, help="Ventana de análisis en días")
+
     # inflation
     p = sub.add_parser("inflation", help="Ver inflación desde el data moat")
     p.add_argument("--country", "-c", choices=list(COUNTRIES.keys()), default=None)
@@ -992,6 +1048,7 @@ def main():
         "countries": cmd_countries, "lines": cmd_lines,
         "categories": cmd_categories, "barcode": cmd_barcode,
         "enrich": cmd_enrich, "basket": cmd_basket,
+        "brief": cmd_brief,
         "inflation": cmd_inflation, "indicators": cmd_indicators, "enrichment": cmd_enrichment, "scores": cmd_scores,
         "alerts": cmd_alerts,
         "about": cmd_about, "whoami": cmd_whoami, "lang": cmd_lang,
