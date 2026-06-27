@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 
-def _product(product_id: str = "p1", store: str = "wong", price: float = 4.5):
+def _product(product_id: str = "p1", store: str = "wong", price: float = 4.5, stock: int = 10):
     return {
         "id": product_id,
         "product_id": product_id,
@@ -25,7 +25,7 @@ def _product(product_id: str = "p1", store: str = "wong", price: float = 4.5):
         "line": "supermercados",
         "line_name": "Supermercados",
         "category": "lacteos",
-        "stock": 10,
+        "stock": stock,
         "url": "http://example.com/p1",
     }
 
@@ -48,9 +48,13 @@ def checkout_env(isolated_db, monkeypatch):
     monkeypatch.setenv("CHECKOUT_MAX_SNAPSHOT_AGE_SEC", "900")
     monkeypatch.setenv("CHECKOUT_MAX_PRICE_DRIFT_PCT", "3.0")
     monkeypatch.setenv("CHECKOUT_REQUIRE_INDEX_LINK", "0")
+    monkeypatch.setenv("CHECKOUT_REQUIRE_STOCK", "1")
+    monkeypatch.setenv("CHECKOUT_BLOCK_TIER_C", "1")
     monkeypatch.setattr(pcv, "MAX_SNAPSHOT_AGE_SEC", lambda: 900)
     monkeypatch.setattr(pcv, "MAX_PRICE_DRIFT_PCT", lambda: 3.0)
     monkeypatch.setattr(pcv, "REQUIRE_INDEX_LINK", lambda: False)
+    monkeypatch.setattr(pcv, "REQUIRE_STOCK", lambda: True)
+    monkeypatch.setattr(pcv, "BLOCK_TIER_C", lambda: True)
     return market_core
 
 
@@ -261,3 +265,49 @@ def test_validate_large_cart_does_not_crash(checkout_env):
     result = pcv.pre_checkout_validate("buyer", cart)
     assert hasattr(result, "ok"), "pre_checkout_validate must return a result for large carts"
     assert len(result.items) == 100, "All 100 items must appear in the result"
+
+
+def test_validate_fails_on_insufficient_stock(checkout_env):
+    import pre_checkout_validate as pcv
+
+    market_core = checkout_env
+    market_core.save_price_snapshot(_product(price=4.5, stock=1))
+    market_core.db_set_subscription("buyer", "pro")
+    cart = [
+        {
+            "product_id": "p1",
+            "name": "Leche Gloria 1L",
+            "price": 4.5,
+            "store": "wong",
+            "quantity": 5,
+            "url": "",
+        }
+    ]
+
+    result = pcv.pre_checkout_validate("buyer", cart)
+    assert result.ok is False
+    assert result.error == "stock_unavailable"
+    assert result.items[0]["status"] == "out_of_stock"
+
+
+def test_validate_blocks_tier_c_products(checkout_env):
+    import pre_checkout_validate as pcv
+
+    market_core = checkout_env
+    market_core.save_price_snapshot(_product(product_id="lap1", price=2500.0))
+    market_core.db_set_subscription("buyer", "pro")
+    cart = [
+        {
+            "product_id": "lap1",
+            "name": "Laptop Lenovo IdeaPad",
+            "price": 2500.0,
+            "store": "wong",
+            "quantity": 1,
+            "url": "",
+        }
+    ]
+
+    result = pcv.pre_checkout_validate("buyer", cart)
+    assert result.ok is False
+    assert result.error == "category_tier_blocked"
+    assert result.items[0]["status"] == "tier_c_blocked"
