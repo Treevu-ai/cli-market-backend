@@ -69,6 +69,8 @@ T = {
         "upgrade": "Solicitar Pro — email con link de pago",
         "brief": "Resumen ejecutivo del mercado (Intelligence Terminal)",
         "pulse": "Agentic Commerce Pulse — reporte semanal editorial",
+        "forecast": "Pronóstico de precio + señal de compra",
+        "arbitrage": "Arbitraje cross-border LatAm",
     },
     "en": {
         "desc": "Agentic Market CLI — purchases from the terminal.",
@@ -102,6 +104,8 @@ T = {
         "upgrade": "Request Pro — email with payment link",
         "brief": "Executive market brief (Intelligence Terminal)",
         "pulse": "Agentic Commerce Pulse — weekly editorial report",
+        "forecast": "Price forecast + procurement signal",
+        "arbitrage": "LatAm cross-border arbitrage",
     },
 }
 
@@ -133,6 +137,8 @@ WELCOME_BANNER = """\n[#00FF88]  ╭──────────────�
 
      [#00FF88]market brief[/]        [#888888]resumen ejecutivo del mercado[/]
      [#00FF88]market pulse[/]        [#888888]reporte semanal Agentic Commerce[/]
+     [#00FF88]market forecast[/]     [#888888]pronóstico de precio[/]
+     [#00FF88]market arbitrage[/]    [#888888]arbitraje cross-border LatAm[/]
      [#00FF88]market login[/]        [#888888]autentícate[/]
      [#00FF88]market search[/]       [#888888]busca en todos los retailers[/]
      [#00FF88]market compare[/]      [#888888]compara precios entre países[/]
@@ -156,6 +162,8 @@ WELCOME_BANNER_EN = """\n[#00FF88]  ╭─────────────�
 
      [#00FF88]market brief[/]        [#888888]executive market summary[/]
      [#00FF88]market pulse[/]        [#888888]weekly Agentic Commerce report[/]
+     [#00FF88]market forecast[/]     [#888888]price forecast[/]
+     [#00FF88]market arbitrage[/]    [#888888]LatAm cross-border arbitrage[/]
      [#00FF88]market login[/]        [#888888]authenticate[/]
      [#00FF88]market search[/]       [#888888]search across all retailers[/]
      [#00FF88]market compare[/]      [#888888]cross-country price comparison[/]
@@ -640,6 +648,91 @@ def cmd_pulse(args):
     console.print("\n[dim]market pulse --markdown  ·  market pulse --json[/]")
 
 
+def cmd_forecast(args):
+    """Price forecast from price_history — procurement signal."""
+    params = [
+        f"product={args.product}",
+        f"country={args.country or 'PE'}",
+        f"horizon_days={args.horizon}",
+    ]
+    qs = "&".join(params)
+    status_msg = "Forecasting price..." if get_lang() == "en" else "Pronosticando precio..."
+    with console.status(f"[cyan]{status_msg}"):
+        data = cli_api("GET", f"/v1/intel/forecast?{qs}")
+
+    if getattr(args, "json", False):
+        sys.stdout.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        return
+
+    if data.get("confidence") == "insufficient":
+        console.print(f"[yellow]{data.get('message', 'Datos insuficientes')}[/]")
+        return
+
+    color = "#FF6B35" if (data.get("forecast_pct") or 0) > 0 else "#00FF88"
+    signal = data.get("procurement_signal", "neutral")
+    sig_color = {"buy_today": "#FF6B35", "wait": "#00FF88"}.get(signal, "white")
+
+    console.print(Panel.fit(
+        f"[bold]{data.get('headline', '')}[/]\n\n"
+        f"  Actual:     [bold]{data.get('currency')} {data.get('current_price')}[/] @ {data.get('store_name')}\n"
+        f"  Proyección: [{color}]{data.get('currency')} {data.get('forecast_price')}[/] "
+        f"({(data.get('forecast_pct') or 0):+.1f}% en {data.get('horizon_days')}d)\n"
+        f"  Confianza:  {data.get('confidence')} (r²={data.get('r2')}, n={data.get('data_points')})\n"
+        f"  Señal:      [{sig_color}]{signal}[/] — {data.get('procurement_rationale')}",
+        title=f"[bold #00FF88]Forecast — {data.get('country')}[/]",
+        border_style="#00FF88",
+    ))
+
+
+def cmd_arbitrage(args):
+    """Cross-border arbitrage across LatAm countries."""
+    params = [f"min_spread_pct={args.min_spread}"]
+    if args.product:
+        params.append(f"product={args.product}")
+    if args.countries:
+        params.append(f"countries={','.join(args.countries)}")
+    qs = "&".join(params)
+    status_msg = "Scanning arbitrage..." if get_lang() == "en" else "Escaneando arbitraje..."
+    with console.status(f"[cyan]{status_msg}"):
+        data = cli_api("GET", f"/v1/intel/arbitrage?{qs}")
+
+    if getattr(args, "json", False):
+        sys.stdout.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        return
+
+    console.print(Panel.fit(
+        f"[bold]{data.get('headline', '')}[/]",
+        title=f"[bold #00FF88]Arbitrage — {data.get('query', '')}[/]",
+        border_style="#00FF88",
+    ))
+
+    offers = data.get("offers") or []
+    if offers:
+        table = Table(border_style="dim blue")
+        table.add_column("País")
+        table.add_column("Tienda")
+        table.add_column("Precio", justify="right")
+        table.add_column("USD", justify="right")
+        for o in offers:
+            table.add_row(
+                o.get("country", ""),
+                (o.get("store_name") or o.get("store", ""))[:20],
+                f"{o.get('currency')} {o.get('price')}",
+                f"${o.get('price_usd')}",
+            )
+        console.print(table)
+
+    if data.get("arbitrage_opportunity"):
+        c = data.get("cheapest", {})
+        p = data.get("priciest", {})
+        console.print(
+            f"\n[#00FF88]✓ Oportunidad:[/] comprar en [bold]{c.get('country')}[/] "
+            f"({c.get('currency')} {c.get('price')}) vs {p.get('country')} "
+            f"— spread {data.get('spread_pct')}%"
+        )
+    console.print(f"\n[dim]{data.get('disclaimer', '')}[/]")
+
+
 def cmd_inflation(args):
     params = []
     if args.country: params.append(f"country={args.country}")
@@ -1067,6 +1160,18 @@ def main():
     p.add_argument("--days", "-d", type=int, default=7)
     p.add_argument("--markdown", action="store_true", help="Salida markdown completa para publicar")
 
+    # forecast
+    p = sub.add_parser("forecast", help=t("forecast"))
+    p.add_argument("product", help="Producto, ej: leche, arroz")
+    p.add_argument("--country", "-c", choices=list(COUNTRIES.keys()), default="PE")
+    p.add_argument("--horizon", type=int, default=21, help="Días de proyección")
+
+    # arbitrage
+    p = sub.add_parser("arbitrage", help=t("arbitrage"))
+    p.add_argument("product", nargs="?", default="arroz", help="Producto a comparar cross-border")
+    p.add_argument("--countries", "-c", nargs="+", choices=list(COUNTRIES.keys()), default=None)
+    p.add_argument("--min-spread", type=float, default=10.0, help="Spread mínimo % para señalar oportunidad")
+
     # inflation
     p = sub.add_parser("inflation", help="Ver inflación desde el data moat")
     p.add_argument("--country", "-c", choices=list(COUNTRIES.keys()), default=None)
@@ -1116,6 +1221,8 @@ def main():
         "enrich": cmd_enrich, "basket": cmd_basket,
         "brief": cmd_brief,
         "pulse": cmd_pulse,
+        "forecast": cmd_forecast,
+        "arbitrage": cmd_arbitrage,
         "inflation": cmd_inflation, "indicators": cmd_indicators, "enrichment": cmd_enrichment, "scores": cmd_scores,
         "alerts": cmd_alerts,
         "about": cmd_about, "whoami": cmd_whoami, "lang": cmd_lang,

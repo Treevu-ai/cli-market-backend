@@ -9,6 +9,8 @@ Endpoints:
   GET /v1/intel/basket-stress   Canasta affordability signal
   GET /v1/intel/brief           Aggregated intel brief (scores + enrichment + subcategories)
   GET /v1/intel/pulse           Agentic Commerce Pulse — weekly research report (JSON/markdown)
+  GET /v1/intel/forecast        Price forecast + procurement signal from price_history
+  GET /v1/intel/arbitrage       Cross-border arbitrage detection (LatAm)
   POST /v1/intel/refresh              Recompute and fetch external indicators
   GET  /v1/intel/enrichment           Latest enrichment indicators
   GET  /v1/intel/enrichment/subcategories  Per-staple enrichment (leche, arroz, …)
@@ -378,6 +380,65 @@ def commerce_pulse(
     if fmt == "markdown":
         return PlainTextResponse(pulse.get("markdown", ""), media_type="text/markdown; charset=utf-8")
     return pulse
+
+
+@router.get("/v1/intel/forecast")
+def intel_forecast(
+    product: str = Query(..., min_length=2, description="Product name, e.g. leche, arroz"),
+    country: str = Query(default="PE"),
+    horizon_days: int = Query(default=21, ge=1, le=90),
+    lookback_days: int = Query(default=90, ge=7, le=365),
+    authorization: str | None = Header(None),
+):
+    """Price forecast from price_history — Walmart Labs procurement signal."""
+    require_api_key(authorization)
+    from market_predict import forecast_product_price
+
+    db = get_db()
+    result = forecast_product_price(
+        db,
+        product,
+        country=(country or "PE").upper()[:2],
+        horizon_days=horizon_days,
+        lookback_days=lookback_days,
+    )
+    db.close()
+    return result
+
+
+@router.get("/v1/intel/arbitrage")
+def intel_arbitrage(
+    product: str | None = Query(default=None, description="Product query across countries"),
+    canonical_product_id: str | None = Query(default=None, alias="canonical_id"),
+    countries: str | None = Query(default=None, description="Comma-separated ISO codes, e.g. PE,MX,CL"),
+    min_spread_pct: float = Query(default=10.0, ge=0),
+    authorization: str | None = Header(None),
+):
+    """Cross-border shelf-price arbitrage — buy country vs sell country in USD."""
+    require_api_key(authorization)
+    from market_predict import detect_arbitrage, detect_arbitrage_canonical
+
+    scope = [c.strip().upper()[:2] for c in (countries or "").split(",") if c.strip()] or None
+    db = get_db()
+    if canonical_product_id:
+        result = detect_arbitrage_canonical(
+            db,
+            canonical_product_id,
+            countries=scope,
+            min_spread_pct=min_spread_pct,
+        )
+    else:
+        if not product:
+            db.close()
+            raise HTTPException(status_code=400, detail="product or canonical_id required")
+        result = detect_arbitrage(
+            db,
+            product,
+            countries=scope,
+            min_spread_pct=min_spread_pct,
+        )
+    db.close()
+    return result
 
 
 @router.post("/v1/intel/refresh")
