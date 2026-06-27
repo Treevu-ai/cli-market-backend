@@ -8,7 +8,7 @@ import os
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from routers.search import SearchRequest, _search_products
@@ -118,3 +118,48 @@ async def public_demo_compare(request: Request, q: str = "arroz"):
             logger.exception("public_demo refresh failed for %s", query)
 
     raise HTTPException(status_code=503, detail="Demo compare temporarily unavailable")
+
+
+_PULSE_CACHE: dict[str, dict] = {}
+_PULSE_TTL = int(os.getenv("PUBLIC_PULSE_CACHE_TTL", "3600"))
+
+
+@router.get("/commerce-pulse")
+def public_commerce_pulse(
+    request: Request,
+    country: str = Query(default="PE"),
+    days: int = Query(default=7, ge=1, le=30),
+    lang: str = Query(default="es"),
+    fmt: str = Query(default="json", alias="format"),
+):
+    """Public Agentic Commerce Pulse — rate-limited weekly research snapshot."""
+    from fastapi.responses import PlainTextResponse
+
+    from market_pulse import generate_commerce_pulse
+
+    from routers.dashboard import get_cached_dashboard_data
+
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(f"commerce-pulse:{client_ip}")
+
+    cc = (country or "PE").strip().upper()[:2]
+    language = "en" if (lang or "").lower().startswith("en") else "es"
+    cache_key = f"{cc}:{days}:{language}"
+    now = time.time()
+    entry = _PULSE_CACHE.get(cache_key)
+    if entry and now - entry["ts"] < _PULSE_TTL:
+        pulse = dict(entry["data"])
+    else:
+        pulse = generate_commerce_pulse(
+            country=cc,
+            days=days,
+            lang=language,
+            dashboard=get_cached_dashboard_data(),
+        )
+        pulse.pop("brief", None)
+        _PULSE_CACHE[cache_key] = {"data": pulse, "ts": now}
+
+    if fmt == "markdown":
+        return PlainTextResponse(pulse.get("markdown", ""), media_type="text/markdown; charset=utf-8")
+    return pulse
+

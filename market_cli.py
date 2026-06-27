@@ -68,6 +68,7 @@ T = {
         "share": "Link de referido para compartir CLI Market",
         "upgrade": "Solicitar Pro — email con link de pago",
         "brief": "Resumen ejecutivo del mercado (Intelligence Terminal)",
+        "pulse": "Agentic Commerce Pulse — reporte semanal editorial",
     },
     "en": {
         "desc": "Agentic Market CLI — purchases from the terminal.",
@@ -100,6 +101,7 @@ T = {
         "share": "Referral link to share CLI Market",
         "upgrade": "Request Pro — email with payment link",
         "brief": "Executive market brief (Intelligence Terminal)",
+        "pulse": "Agentic Commerce Pulse — weekly editorial report",
     },
 }
 
@@ -130,6 +132,7 @@ WELCOME_BANNER = """\n[#00FF88]  ╭──────────────�
      [#555555]github.com/treevu-ai/cli-market-world[/]
 
      [#00FF88]market brief[/]        [#888888]resumen ejecutivo del mercado[/]
+     [#00FF88]market pulse[/]        [#888888]reporte semanal Agentic Commerce[/]
      [#00FF88]market login[/]        [#888888]autentícate[/]
      [#00FF88]market search[/]       [#888888]busca en todos los retailers[/]
      [#00FF88]market compare[/]      [#888888]compara precios entre países[/]
@@ -152,6 +155,7 @@ WELCOME_BANNER_EN = """\n[#00FF88]  ╭─────────────�
      [#555555]github.com/treevu-ai/cli-market-world[/]
 
      [#00FF88]market brief[/]        [#888888]executive market summary[/]
+     [#00FF88]market pulse[/]        [#888888]weekly Agentic Commerce report[/]
      [#00FF88]market login[/]        [#888888]authenticate[/]
      [#00FF88]market search[/]       [#888888]search across all retailers[/]
      [#00FF88]market compare[/]      [#888888]cross-country price comparison[/]
@@ -582,6 +586,60 @@ def cmd_brief(args):
     console.print(f"\n[dim]{brief_footer(lang=lang)}[/]")
 
 
+def cmd_pulse(args):
+    """Agentic Commerce Pulse — BBVA-style weekly research report."""
+    params = [f"country={args.country or 'PE'}"]
+    if getattr(args, "days", None):
+        params.append(f"days={args.days}")
+    if get_lang() == "en":
+        params.append("lang=en")
+    qs = "&".join(params)
+    status_msg = "Generating Commerce Pulse..." if get_lang() == "en" else "Generando Commerce Pulse..."
+    with console.status(f"[cyan]{status_msg}"):
+        data = cli_api("GET", f"/v1/intel/pulse?{qs}")
+
+    if getattr(args, "markdown", False):
+        console.print(data.get("markdown", ""))
+        return
+    if getattr(args, "json", False):
+        data.pop("brief", None)
+        sys.stdout.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        return
+
+    title = data.get("title", "Agentic Commerce Pulse")
+    headline = data.get("headline", "")
+    console.print(Panel.fit(f"[bold]{headline}[/]", title=f"[bold #00FF88]{title}[/]", border_style="#00FF88"))
+
+    highlights = data.get("executive_highlights") or []
+    if highlights:
+        console.print("\n[bold]Executive Highlights[/]")
+        for h in highlights:
+            console.print(f"  • {h}")
+
+    kpis = data.get("kpis") or {}
+    if kpis:
+        table = Table(show_header=True, border_style="dim blue")
+        table.add_column("KPI")
+        table.add_column("Value", justify="right")
+        for key, label in (
+            ("inflation_pct", "Inflación retail (7d)"),
+            ("pvi", "PVI"),
+            ("bai", "BAI"),
+            ("pdi", "PDI"),
+            ("rcs", "RCS"),
+        ):
+            val = kpis.get(key)
+            if val is None:
+                continue
+            disp = f"{float(val):+.1f}%" if key == "inflation_pct" else str(val)
+            table.add_row(label, disp)
+        console.print(table)
+
+    if data.get("publishable") is False:
+        console.print("\n[yellow]⚠ Cobertura parcial — revisar confidence antes de publicar.[/]")
+    console.print("\n[dim]market pulse --markdown  ·  market pulse --json[/]")
+
+
 def cmd_inflation(args):
     params = []
     if args.country: params.append(f"country={args.country}")
@@ -813,7 +871,8 @@ def cmd_hello(args):
             "[bold]Next steps:[/]\n"
             "  1. [cyan]market login[/] — free API access\n"
             "  2. [cyan]market brief -c PE[/] — executive market summary\n"
-            "  3. [cyan]market search \"milk\" --country PE[/] — try a search\n"
+            "  3. [cyan]market pulse -c PE[/] — weekly Commerce Pulse report\n"
+            "  4. [cyan]market search \"milk\" --country PE[/] — try a search\n"
             "  4. Connect MCP in Cursor/Claude → [cyan]https://cli-market.dev/tools[/]\n"
             "  5. [cyan]market share[/] — referral link\n\n"
             "[dim]Docs: cli-market.dev/llms.txt · GitHub: Treevu-ai/cli-market-world[/]",
@@ -827,7 +886,8 @@ def cmd_hello(args):
             "[bold]Próximos pasos:[/]\n"
             "  1. [cyan]market login[/] — acceso gratis\n"
             "  2. [cyan]market brief -c PE[/] — resumen ejecutivo del mercado\n"
-            "  3. [cyan]market search \"leche\" --country PE[/] — prueba una búsqueda\n"
+            "  3. [cyan]market pulse -c PE[/] — reporte semanal Commerce Pulse\n"
+            "  4. [cyan]market search \"leche\" --country PE[/] — prueba una búsqueda\n"
             "  4. Conecta MCP en Cursor/Claude → [cyan]https://cli-market.dev/tools[/]\n"
             "  5. [cyan]market share[/] — link de referido\n\n"
             "[dim]Docs: cli-market.dev/llms.txt · GitHub: Treevu-ai/cli-market-world[/]",
@@ -1001,6 +1061,12 @@ def main():
     p.add_argument("--line", choices=list(LINES.keys()), default=None)
     p.add_argument("--days", "-d", type=int, default=7, help="Ventana de análisis en días")
 
+    # pulse — weekly Agentic Commerce Pulse report
+    p = sub.add_parser("pulse", help=t("pulse"))
+    p.add_argument("--country", "-c", choices=list(COUNTRIES.keys()), default="PE")
+    p.add_argument("--days", "-d", type=int, default=7)
+    p.add_argument("--markdown", action="store_true", help="Salida markdown completa para publicar")
+
     # inflation
     p = sub.add_parser("inflation", help="Ver inflación desde el data moat")
     p.add_argument("--country", "-c", choices=list(COUNTRIES.keys()), default=None)
@@ -1049,6 +1115,7 @@ def main():
         "categories": cmd_categories, "barcode": cmd_barcode,
         "enrich": cmd_enrich, "basket": cmd_basket,
         "brief": cmd_brief,
+        "pulse": cmd_pulse,
         "inflation": cmd_inflation, "indicators": cmd_indicators, "enrichment": cmd_enrichment, "scores": cmd_scores,
         "alerts": cmd_alerts,
         "about": cmd_about, "whoami": cmd_whoami, "lang": cmd_lang,

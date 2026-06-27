@@ -10,6 +10,7 @@ Endpoints:
   POST /admin/cron/command-control  Post morning founder panel (#command-control-cli-market)
   POST /admin/cron/adoption-index  Persist Adoption Index snapshot (nightly cron)
   POST /admin/cron/indicators-refresh  Refresh moat indicators (internal + macro + Phase 2)
+  POST /admin/cron/commerce-pulse  Generate Agentic Commerce Pulse reports (weekly)
 
 Protected with MARKET_API_TOKEN (Bearer). Set on Railway before exposing publicly.
 """
@@ -343,3 +344,69 @@ def admin_cron_command_control(
     except Exception as exc:
         logger.exception("command-control cron failed")
         raise HTTPException(status_code=500, detail=str(exc)[:200]) from exc
+
+
+@router.post("/admin/cron/commerce-pulse")
+def admin_cron_commerce_pulse(
+    authorization: str | None = Header(None),
+    body: dict = Body(default_factory=dict),
+):
+    """Generate Agentic Commerce Pulse reports (weekly cron / ops)."""
+    require_admin(authorization)
+
+    from pathlib import Path
+
+    from market_pulse import generate_commerce_pulse
+
+    from routers.dashboard import get_cached_dashboard_data
+
+    countries = body.get("countries") or ["PE", "MX", "CL", "CO", "AR", "BR"]
+    days = int(body.get("days") or 7)
+    lang = body.get("lang") or "es"
+    save = body.get("save", True)
+    llm = bool(body.get("llm", False))
+    dashboard = get_cached_dashboard_data()
+
+    reports: list[dict] = []
+    written: list[str] = []
+
+    for raw_cc in countries:
+        cc = str(raw_cc).strip().upper()[:2]
+        if len(cc) != 2:
+            continue
+        pulse = generate_commerce_pulse(
+            country=cc,
+            days=days,
+            lang=lang,
+            dashboard=dashboard,
+            llm=llm,
+        )
+        item = {
+            "country": cc,
+            "week": pulse.get("week"),
+            "publishable": pulse.get("publishable"),
+            "headline": pulse.get("headline"),
+            "highlights": len(pulse.get("executive_highlights") or []),
+        }
+        reports.append(item)
+        if save:
+            import sys
+
+            ops_dir = Path(__file__).resolve().parent.parent / "ops"
+            if str(ops_dir) not in sys.path:
+                sys.path.insert(0, str(ops_dir))
+            from content_paths import metrics_dir
+
+            metrics_dir().mkdir(parents=True, exist_ok=True)
+            week = pulse.get("week", "unknown")
+            path = metrics_dir() / f"commerce-pulse-{cc}-{week}.md"
+            path.write_text(pulse.get("markdown", ""), encoding="utf-8")
+            written.append(str(path.name))
+
+    return {
+        "ok": True,
+        "reports": reports,
+        "written": written,
+        "llm": llm,
+    }
+

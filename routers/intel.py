@@ -8,6 +8,7 @@ Endpoints:
   GET /v1/intel/scores          Composite moat scores
   GET /v1/intel/basket-stress   Canasta affordability signal
   GET /v1/intel/brief           Aggregated intel brief (scores + enrichment + subcategories)
+  GET /v1/intel/pulse           Agentic Commerce Pulse — weekly research report (JSON/markdown)
   POST /v1/intel/refresh              Recompute and fetch external indicators
   GET  /v1/intel/enrichment           Latest enrichment indicators
   GET  /v1/intel/enrichment/subcategories  Per-staple enrichment (leche, arroz, …)
@@ -18,8 +19,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, field_validator
 
 from market_core import STORES, get_db
@@ -347,6 +348,36 @@ def intel_brief(
         result["catalog"] = get_indicator_catalog()
 
     return result
+
+
+@router.get("/v1/intel/pulse")
+def commerce_pulse(
+    country: str = Query(default="PE", description="ISO country code"),
+    days: int = Query(default=7, ge=1, le=90),
+    lang: str = Query(default="es", description="es or en"),
+    fmt: str = Query(default="json", alias="format", description="json or markdown"),
+    include_brief: bool = Query(default=False),
+    authorization: str | None = Header(None),
+):
+    """Agentic Commerce Pulse — BBVA-style weekly report from moat signals."""
+    require_api_key(authorization)
+    from market_pulse import generate_commerce_pulse
+
+    from routers.dashboard import get_cached_dashboard_data
+
+    cc = (country or "PE").strip().upper()[:2]
+    language = "en" if (lang or "").lower().startswith("en") else "es"
+    pulse = generate_commerce_pulse(
+        country=cc,
+        days=days,
+        lang=language,
+        dashboard=get_cached_dashboard_data(),
+    )
+    if not include_brief:
+        pulse = {k: v for k, v in pulse.items() if k != "brief"}
+    if fmt == "markdown":
+        return PlainTextResponse(pulse.get("markdown", ""), media_type="text/markdown; charset=utf-8")
+    return pulse
 
 
 @router.post("/v1/intel/refresh")
