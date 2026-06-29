@@ -108,8 +108,9 @@ def _run_search_with_moat(moat_response: dict) -> dict:
     resp_search = _mock_response(200, json_body=search_result)
     resp_collector = _mock_response(200, json_body=moat_response)
 
-    # Reset cache so the moat endpoint is actually called
-    mcp_module._MOAT_CACHE = {"ts": 0.0, "age_hours": None, "status": "unknown"}
+    # Reset cache so the moat endpoint is actually called.
+    # Use a large negative ts so now - ts > _MOAT_TTL regardless of system monotonic clock.
+    mcp_module._MOAT_CACHE = {"ts": -1e9, "age_hours": None, "status": "unknown"}
 
     mock_client = _mock_client({search_url: resp_search, collector_url: resp_collector})
 
