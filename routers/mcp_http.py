@@ -22,6 +22,8 @@ Tool tiers (default profile, 32 tools):
 
 from __future__ import annotations
 
+import time as _time
+
 import httpx
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
@@ -117,12 +119,43 @@ def _log_mcp_event(event: str, token: str | None, meta: dict) -> None:
 # published to cli-market-core without a matching mcp_http update.
 _TOOLS: list[dict] = _registry_list_tools("default")
 
+# ── Moat freshness cache — injected into search/basket responses ──────────────
+
+_MOAT_CACHE: dict = {"ts": 0.0, "age_hours": None, "status": "unknown"}
+_MOAT_TTL = 300.0  # seconds; one probe per 5 min per process
+
+_FRESHNESS_TOOLS = frozenset({"market_search", "market_basket", "market_compare"})
+
+
+async def _fetch_moat_cached(client: httpx.AsyncClient, headers: dict) -> dict:
+    """Return cached moat freshness; refresh if older than _MOAT_TTL."""
+    global _MOAT_CACHE
+    now = _time.monotonic()
+    if now - _MOAT_CACHE["ts"] < _MOAT_TTL:
+        return _MOAT_CACHE
+    try:
+        r = await client.get(f"{_API_BASE}/health/collector", headers=headers, timeout=2.0)
+        if r.status_code == 200:
+            data = r.json()
+            _MOAT_CACHE = {
+                "ts": now,
+                "age_hours": data.get("age_hours"),
+                "status": data.get("status", "unknown"),
+            }
+        else:
+            _MOAT_CACHE["ts"] = now
+    except Exception:
+        _MOAT_CACHE["ts"] = now
+    return _MOAT_CACHE
+
 
 
 
 # ── Tool execution ────────────────────────────────────────────────────────────
 
 async def _call_tool(name: str, args: dict, token: str) -> dict:
+    import asyncio
+
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=20.0) as client:
         # ── Free tools ────────────────────────────────────────────────────────
@@ -217,9 +250,36 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
 
         if r.status_code in (402, 403) and name in _PRO_TOOLS:
             return {"error": "pro_required", "message": _UPGRADE_MSG}
+        if r.status_code == 429:
+            retry_after = r.headers.get("retry-after", "60")
+            try:
+                detail = r.json().get("detail", r.text[:300])
+            except Exception:
+                detail = r.text[:300]
+            return {
+                "error": "rate_limited",
+                "message": detail,
+                "retry_after_seconds": int(retry_after),
+            }
         if r.status_code >= 400:
             return {"error": f"HTTP {r.status_code}", "detail": r.text[:200]}
-        return r.json()
+
+        result = r.json()
+
+        # Inject moat freshness into search/basket/compare concurrently (cached, ~0 latency after warmup).
+        if name in _FRESHNESS_TOOLS:
+            moat = await _fetch_moat_cached(client, headers)
+            age_h = moat.get("age_hours")
+            status = moat.get("status", "unknown")
+            if age_h is not None:
+                result["_moat_age_hours"] = age_h
+            if status in ("stale", "dead", "empty"):
+                result["_data_warning"] = (
+                    f"Price data may be outdated — last collector run {age_h:.1f}h ago (status: {status}). "
+                    "Verify critical prices before recommending a purchase."
+                )
+
+        return result
 
 
 # ── JSON-RPC helpers ──────────────────────────────────────────────────────────
