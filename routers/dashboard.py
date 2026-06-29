@@ -445,37 +445,27 @@ def _dashboard_data():
         row["normalized_unit"] = info["normalized_unit"]
 
     # ── Top discounts (public: sane retail range only) ───────────────────────
-    top_discounts = db.execute(
+    # One scan for both discount bands; Python splits into top/suspect.
+    all_discount_rows = db.execute(
         """
-        SELECT name, store, store_name, price, list_price, discount_pct, currency, line_name
-        FROM (
-            SELECT name, store, store_name, price, list_price,
-                   ROUND(((1 - price / NULLIF(list_price,0)) * 100)::numeric) as discount_pct,
-                   currency, line_name
-            FROM price_snapshots
-            WHERE list_price > price AND price > 0 AND list_price < 999999
-              AND SUBSTR(store, LENGTH(store) - 2) != '_br'
-        ) discounted
-        WHERE discount_pct BETWEEN 5 AND 80
-        ORDER BY discount_pct DESC LIMIT 10
+        SELECT name, store, store_name, price, list_price,
+               ROUND(((1 - price / NULLIF(list_price,0)) * 100)) AS discount_pct,
+               currency, line_name
+        FROM price_snapshots
+        WHERE list_price > price AND price > 0 AND list_price < 999999
+          AND ROUND(((1 - price / NULLIF(list_price,0)) * 100)) BETWEEN 5 AND 99
+        ORDER BY discount_pct DESC
+        LIMIT 200
         """
     ).fetchall()
 
-    suspect_discounts = db.execute(
-        """
-        SELECT name, store_name, price, list_price, discount_pct, currency, line_name, confidence
-        FROM (
-            SELECT name, store_name, price, list_price,
-                   ROUND(((1 - price / NULLIF(list_price,0)) * 100)::numeric) as discount_pct,
-                   currency, line_name,
-                   'suspect' as confidence
-            FROM price_snapshots
-            WHERE list_price > price AND price > 0 AND list_price < 999999
-        ) discounted
-        WHERE discount_pct >= 90
-        ORDER BY discount_pct DESC LIMIT 20
-        """
-    ).fetchall()
+    top_discounts_raw = [r for r in all_discount_rows
+                         if r["store"] and not r["store"].endswith("_br")
+                         and 5 <= (r["discount_pct"] or 0) <= 80][:10]
+    top_discounts = top_discounts_raw
+
+    suspect_discounts_raw = [r for r in all_discount_rows if (r["discount_pct"] or 0) >= 90][:20]
+    suspect_discounts = [dict(r) | {"confidence": "suspect"} for r in suspect_discounts_raw]
 
     # ── Cheapest store by line ───────────────────────────────────────────────
     cheapest_by_line = db.execute(
@@ -586,14 +576,11 @@ def _dashboard_data():
     inventory_daily.reverse()  # chronological order
 
     # Derived growth stats
-    first_snapshot_row = db.execute(
-        "SELECT MIN(queried_at) as first FROM price_snapshots WHERE price > 0"
+    growth_meta_row = db.execute(
+        "SELECT MIN(queried_at) as first, COUNT(*) as n FROM price_snapshots WHERE price > 0"
     ).fetchone()
-    moat_start = first_snapshot_row["first"] if first_snapshot_row else None
-
-    total_snapshots_all = db.execute(
-        "SELECT COUNT(*) as n FROM price_snapshots WHERE price > 0"
-    ).fetchone()["n"]
+    moat_start = growth_meta_row["first"] if growth_meta_row else None
+    total_snapshots_all = int(growth_meta_row["n"] or 0) if growth_meta_row else 0
 
     daily_last_7d = [d["snapshots"] for d in inventory_daily[-7:]] if len(inventory_daily) >= 7 else []
     avg_daily_7d = round(sum(daily_last_7d) / 7, 1) if daily_last_7d else 0
@@ -606,13 +593,6 @@ def _dashboard_data():
     ).fetchall()
     failing_stores = [r for r in failing_stores if r["store"] in get_default_stores()]
 
-    # ── Freshness ────────────────────────────────────────────────────────────
-    freshness = db.execute(
-        """SELECT store, store_name, MAX(queried_at) as last_seen
-           FROM price_snapshots WHERE price > 0
-           GROUP BY store, store_name ORDER BY last_seen DESC LIMIT 20"""
-    ).fetchall()
-
     # ── Operacional: store health scores (active catalog only) ───────────────
     store_health_all = db.execute(
         """SELECT store, total_requests, total_successes,
@@ -624,17 +604,25 @@ def _dashboard_data():
     healthy_count = sum(1 for h in store_health if float(h.get("success_pct") or 0) >= 80)
 
     # ── Per-store windows: coverage 7d + fresh 24h + active 7d — one pass ──────
+    # Also carries store_name + last_seen so freshness can be derived in Python.
     cutoff_7d = (now - timedelta(days=7)).isoformat()
     store_window_rows = db.execute(
-        f"""SELECT store,
+        f"""SELECT store, store_name,
                   COUNT(*) AS total_snapshots,
                   COUNT(*) FILTER (WHERE queried_at >= ?) AS snapshots_7d,
                   COUNT(*) FILTER (WHERE queried_at >= {cutoff_24h_sql}) AS snapshots_24h,
                   MAX(queried_at) AS last_seen
            FROM price_snapshots WHERE price > 0
-           GROUP BY store""",
+           GROUP BY store, store_name""",
         (cutoff_7d,),
     ).fetchall()
+
+    # ── Freshness — derived from store_window_rows (no extra query) ──────────
+    freshness = sorted(
+        [{"store": r["store"], "store_name": r["store_name"], "last_seen": r["last_seen"]}
+         for r in store_window_rows if r["last_seen"]],
+        key=lambda x: x["last_seen"] or "", reverse=True
+    )[:20]
     store_coverage_map: dict[str, float] = {}
     stores_fresh_24h: set[str] = set()
     stores_active_7d: set[str] = set()
