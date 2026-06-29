@@ -115,6 +115,47 @@ def main() -> int:
         print(json.dumps(data, indent=2))
         failures.append("household-get")
 
+    # ── Step 4: household PUT (upsert) then summary ───────────────────────────
+    patch = {
+        "size": 2, "country": country, "currency": "PEN",
+        "budget_monthly": 800, "budget_period_start_day": 1,
+        "restrictions": {}, "default_stores": [], "staple_list": ["leche", "arroz"],
+        "goals": ["ahorrar"],
+    }
+    status, data = req("PUT", "/v1/household", patch, api_key=key)
+    ok = status == 200
+    print(f"\nPUT /v1/household -> {status}")
+    if ok:
+        d = data.get("data") or data
+        print(f"  size          : {d.get('size')}")
+        print(f"  budget_monthly: {d.get('budget_monthly')}")
+    else:
+        print(json.dumps(data, indent=2))
+        failures.append("household-put")
+
+    status, data = req("GET", "/v1/household/summary", api_key=key)
+    ok = status == 200 and "suggested_action" in (data.get("data") or data)
+    print(f"\nGET /v1/household/summary -> {status}")
+    if ok:
+        d = data.get("data") or data
+        print(f"  suggested_action    : {d.get('suggested_action')}")
+        print(f"  budget_remaining    : {d.get('budget_remaining')}")
+        print(f"  days_left_in_period : {d.get('days_left_in_period')}")
+    else:
+        print(json.dumps(data, indent=2))
+        failures.append("household-summary")
+
+    # ── Step 5: receipts list ─────────────────────────────────────────────────
+    status, data = req("GET", "/v1/receipts?limit=5", api_key=key)
+    ok = status == 200 and "receipts" in (data.get("data") or data)
+    print(f"\nGET /v1/receipts -> {status}")
+    if ok:
+        d = data.get("data") or data
+        print(f"  count: {d.get('count', 0)} receipts")
+    else:
+        print(json.dumps(data, indent=2))
+        failures.append("receipts-list")
+
     # ── Report ────────────────────────────────────────────────────────────────
     if failures:
         print(f"\nFAILED: {', '.join(failures)}")
