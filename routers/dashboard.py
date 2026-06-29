@@ -325,22 +325,9 @@ def _dashboard_data():
         """
     ).fetchall()
 
-    # ── By country ───────────────────────────────────────────────────────────
-    by_country_raw = db.execute(
-        "SELECT store, COUNT(*) as count FROM price_snapshots WHERE price > 0 GROUP BY store"
-    ).fetchall()
-
-    country_agg: dict[str, dict] = {}
-    for r in by_country_raw:
-        country = STORES.get(r["store"], {}).get("country", "??")
-        c = country_agg.setdefault(country, {"country": country, "count": 0, "stores": set()})
-        c["count"] += r["count"]
-        c["stores"].add(r["store"])
-    by_country = sorted(
-        [{"country": c["country"], "count": c["count"], "stores": len(c["stores"])}
-         for c in country_agg.values()],
-        key=lambda x: x["count"], reverse=True,
-    )
+    # ── By country — deferred: derived from store_window_rows after it loads ──
+    # (placeholder; computed after store_window_rows block below)
+    by_country: list[dict] = []
 
     # ── Dispersión por subcategoría + moneda (+ precio unitario cuando aplica) ─
     spread_rows = db.execute(
@@ -626,6 +613,7 @@ def _dashboard_data():
     store_coverage_map: dict[str, float] = {}
     stores_fresh_24h: set[str] = set()
     stores_active_7d: set[str] = set()
+    _country_agg: dict[str, dict] = {}
     _defaults = get_default_stores()
     for r in store_window_rows:
         sid = r["store"]
@@ -636,6 +624,15 @@ def _dashboard_data():
                 stores_fresh_24h.add(sid)
             if int(r["snapshots_7d"] or 0) > 0:
                 stores_active_7d.add(sid)
+        country = STORES.get(sid, {}).get("country", "??")
+        ca = _country_agg.setdefault(country, {"country": country, "count": 0, "stores": set()})
+        ca["count"] += total
+        ca["stores"].add(sid)
+    by_country = sorted(
+        [{"country": c["country"], "count": c["count"], "stores": len(c["stores"])}
+         for c in _country_agg.values()],
+        key=lambda x: x["count"], reverse=True,
+    )
     for h in store_health:
         h["coverage_7d_pct"] = store_coverage_map.get(h["store"], 0.0)
     coverage_7d_pct = round(len(stores_active_7d) / len(get_default_stores()) * 100, 1) if get_default_stores() else 0
@@ -733,29 +730,28 @@ def _dashboard_data():
         for o in outliers:
             o["store_health_state"] = store_health_lookup.get(o.get("store", ""), "unknown")
 
-    # ── Inflation 7d: per line + currency (nominal + USD-normalized) ────────
+    # ── Inflation 7d: per line + currency — single GROUP BY with FILTER ────────
+    inflation_rows = db.execute(
+        """SELECT line, currency,
+                  AVG(price) FILTER (WHERE queried_at >= ?) AS avg_recent,
+                  AVG(price) FILTER (WHERE queried_at >= ? AND queried_at < ?) AS avg_older
+           FROM price_snapshots
+           WHERE price > 0 AND price < 999999 AND queried_at >= ?
+           GROUP BY line, currency""",
+        (now7, now14, now7, now14),
+    ).fetchall()
+
+    _line_name_map = {(r["line"], r["currency"]): r.get("line_name") for r in by_line_currency}
     inflation = []
-    for row in by_line_currency:
-        recent_avg = db.execute(
-            """SELECT ROUND(AVG(price)::numeric,2) as avg_price
-               FROM price_snapshots
-               WHERE line=? AND currency=? AND price>0 AND price<999999 AND queried_at >= ?""",
-            (row["line"], row["currency"], now7),
-        ).fetchone()
-        older_avg = db.execute(
-            """SELECT ROUND(AVG(price)::numeric,2) as avg_price
-               FROM price_snapshots
-               WHERE line=? AND currency=? AND price>0 AND price<999999
-                 AND queried_at >= ? AND queried_at < ?""",
-            (row["line"], row["currency"], now14, now7),
-        ).fetchone()
-        r_avg = float(recent_avg["avg_price"] or 0) if recent_avg else 0.0
-        o_avg = float(older_avg["avg_price"] or 0) if older_avg else 0.0
+    for r in inflation_rows:
+        r_avg = round(float(r["avg_recent"] or 0), 2)
+        o_avg = round(float(r["avg_older"] or 0), 2)
         delta = round((r_avg - o_avg) / o_avg * 100, 1) if o_avg > 0 else 0
-        cur = row["currency"] or ""
+        cur = r["currency"] or ""
+        line_key = r["line"] or ""
         inflation.append({
-            "line": row["line_name"] or row["line"],
-            "line_key": row["line"],
+            "line": _line_name_map.get((line_key, cur)) or line_key,
+            "line_key": line_key,
             "currency": cur,
             "avg_now": r_avg,
             "avg_before": o_avg,
