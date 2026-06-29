@@ -106,7 +106,10 @@ def main() -> int:
         print(f"  checkout_url: {data.get('checkout_url', '')[:80]}...")
         print(f"  amount_pen  : S/ {data.get('amount_pen')}")
         print(f"  amount_usd  : ${data.get('amount_usd')}")
-        assert request_id.startswith(f"{prefix}-"), f"Expected {prefix}- prefix, got {request_id}"
+        if not request_id.startswith(f"{prefix}-"):
+            print(f"  ERROR: expected {prefix}- prefix, got {request_id}")
+            failures.append(f"bad-ref-prefix:{request_id}")
+            return _report(failures)
         print(f"  ref prefix  : {prefix} ✓")
     else:
         print(json.dumps(data, indent=2))
@@ -115,11 +118,19 @@ def main() -> int:
 
     # ── Step 2 (optional): simulate webhook ──────────────────────────────────
     if args.activate:
-        print(f"\n--- Simulating MP webhook for {request_id} ---")
+        # Use a real MP payment_id if provided — the server fetches the payment
+        # from MP to confirm approval, so a fake id won't activate anything in prod.
+        # Set SMOKE_MP_PAYMENT_ID to a real sandbox payment id to test full flow.
+        mp_payment_id = os.getenv("SMOKE_MP_PAYMENT_ID", "").strip() or f"smoke-{int(time.time())}"
+        if mp_payment_id.startswith("smoke-"):
+            print(f"\nWARN: using synthetic payment id {mp_payment_id!r}.")
+            print("Set SMOKE_MP_PAYMENT_ID=<real sandbox id> to test full server activation.\n")
+        print(f"--- Simulating MP webhook for {request_id} (payment_id={mp_payment_id}) ---")
+        request_id_header = f"smoke-rid-{int(time.time())}"
         webhook_body = json.dumps(
             {
                 "type": "payment",
-                "data": {"id": f"smoke-{int(time.time())}"},
+                "data": {"id": mp_payment_id},
                 "action": "payment.created",
                 "external_reference": f"CLI-Market-{request_id}",
                 "status": "approved",
@@ -127,9 +138,9 @@ def main() -> int:
         ).encode()
 
         webhook_secret = os.getenv("PROCURE_MP_WEBHOOK_SECRET", "").strip()
-        wh_headers: dict = {"Content-Type": "application/json"}
+        wh_headers: dict = {"Content-Type": "application/json", "x-request-id": request_id_header}
         if webhook_secret:
-            sig = hmac.new(webhook_secret.encode(), webhook_body, hashlib.sha256).hexdigest()
+            sig = _mp_webhook_signature(webhook_body, webhook_secret)
             wh_headers["x-signature"] = f"sha256={sig}"
 
         r2 = urllib.request.Request(

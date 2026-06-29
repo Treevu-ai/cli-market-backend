@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 GRACE_DAYS = 7
 REMIND_DAYS_BEFORE = [3, 0]
-REMIND_DAYS_AFTER = [3, 7]
+REMIND_DAYS_AFTER = [3]  # D+7 is downgrade, not a reminder
 PROCURE_TIERS = frozenset({"procure_starter", "procure_pro", "procure_builder"})
 RENEWAL_BASE_URL = os.getenv("PROCURE_APP_URL", "https://procurecopilot.com") + "/#pricing"
 
@@ -96,18 +96,22 @@ def process_subscription(row: dict, *, dry_run: bool, db) -> str:
 
     now = _now()
     grace_end = expires_dt + timedelta(days=GRACE_DAYS)
-    days_delta = (expires_dt - now).days  # positive = days until expiry, negative = days past
+    # Use date-based delta so the job behaves consistently regardless of the
+    # exact time-of-day stored in expires_at (avoids ±1-day drift on daily runs).
+    today = now.date()
+    expires_date = expires_dt.date()
+    grace_end_date = grace_end.date()
 
     email = _get_email(db, username)
     renewal_url = f"{RENEWAL_BASE_URL}"
     grace_ends_on = grace_end.strftime("%Y-%m-%d")
 
     # ── D+7 downgrade ────────────────────────────────────────────────────────
-    if now >= grace_end:
+    if today >= grace_end_date:
         event_key = "downgrade"
         if _already_sent_today(db, username, event_key):
             return f"skip:{username} (downgrade already sent today)"
-        logger.info("DOWNGRADE %s tier=%s expired=%s", username, tier, expires_dt.date())
+        logger.info("DOWNGRADE %s tier=%s expired=%s", username, tier, expires_date)
         if not dry_run:
             from market_core import db_set_subscription
             db_set_subscription(username, "free")
@@ -122,8 +126,8 @@ def process_subscription(row: dict, *, dry_run: bool, db) -> str:
         return f"downgraded:{username}"
 
     # ── In grace period (D+1 to D+6) ────────────────────────────────────────
-    if now > expires_dt:
-        days_over = (now - expires_dt).days
+    if today > expires_date:
+        days_over = (today - expires_date).days
         if days_over not in REMIND_DAYS_AFTER:
             return f"skip:{username} (D+{days_over} not a reminder day)"
         event_key = f"remind_D+{days_over}"
@@ -143,7 +147,7 @@ def process_subscription(row: dict, *, dry_run: bool, db) -> str:
         return f"reminded:{username}:D+{days_over}"
 
     # ── Before expiry ────────────────────────────────────────────────────────
-    days_before = days_delta + 1  # days_delta is floor; +1 to get "days remaining"
+    days_before = (expires_date - today).days
     if days_before not in REMIND_DAYS_BEFORE:
         return f"skip:{username} (D-{days_before} not a reminder day)"
     event_key = f"remind_D-{days_before}"
