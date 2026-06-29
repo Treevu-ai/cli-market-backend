@@ -88,7 +88,7 @@ def inflation_tracker(
     db = get_db()
     since = _since_iso(days)
     q = (
-        "SELECT name, store, store_name, currency, price, queried_at "
+        "SELECT product_id, name, store, store_name, currency, price, queried_at "
         "FROM price_snapshots WHERE price > 0 AND queried_at >= ?"
     )
     params: list = [since]
@@ -108,11 +108,14 @@ def inflation_tracker(
     prods: dict[str, list[dict]] = {}
     for r in rows:
         name = r["name"]
+        pid = r["product_id"]
         # Normalize to price-per-base-unit so pack-size changes don't appear as inflation.
         ppu = price_per_base_unit(r["price"], name)
         normalized_price = ppu["price_per"] if ppu else r["price"]
         basis = ppu["basis"] if ppu else "unit"
-        k = f"{r['store']}|{name.lower()[:40]}"
+        # Use canonical product_id when available — collapses "Arroz Extra Costeño 750g"
+        # and "Arroz Extra COSTEÑO Bolsa 750g" into the same bucket per store.
+        k = f"{r['store']}|{pid}" if pid else f"{r['store']}|{name.lower()[:40]}"
         prods.setdefault(k, []).append(
             {
                 "price": normalized_price,
@@ -121,6 +124,8 @@ def inflation_tracker(
                 "date": r["queried_at"],
                 "store": r["store_name"],
                 "currency": r["currency"],
+                "name": name,
+                "product_id": pid,
             }
         )
 
@@ -140,7 +145,8 @@ def inflation_tracker(
                     continue
                 items.append(
                     {
-                        "product": _key.split("|", 1)[1],
+                        "product": last["name"],
+                        "product_id": last["product_id"],
                         "first_price": first["raw_price"],
                         "last_price": last["raw_price"],
                         "first_price_per_unit": first["price"],
