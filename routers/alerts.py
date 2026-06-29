@@ -14,7 +14,7 @@ Channels:   notify_email (Pro) | notify_webhook (Enterprise)
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, field_validator
 
 from market_alerts import (
@@ -26,8 +26,8 @@ from market_alerts import (
     db_toggle_alert,
     evaluate_alerts,
 )
-from market_core import get_db, db_get_subscription
-from server_deps import require_api_key
+from market_core import db_get_subscription
+from server_deps import get_db_dep, require_api_key
 
 router = APIRouter(tags=["alerts"])
 
@@ -152,18 +152,17 @@ def alert_events(
     alert_id: str,
     limit: int = 20,
     authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
 ):
     """Firing history for a specific alert."""
     username = require_api_key(authorization)
     alert = db_get_alert(alert_id)
     if not alert or alert.get("username") != username:
         raise HTTPException(status_code=404, detail="Alert not found or not yours")
-    db = get_db()
     rows = db.execute(
         "SELECT * FROM alert_events WHERE alert_id=? ORDER BY fired_at DESC LIMIT ?",
         (alert_id, limit),
     ).fetchall()
-    db.close()
     return {
         "alert_id": alert_id,
         "alert_name": alert.get("name"),

@@ -23,12 +23,12 @@ import logging
 import time
 
 import httpx
-from fastapi import APIRouter, Body, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from market_core import STORES, db_get_subscription, db_get_users, db_set_subscription, fetch_store, product_from_json, get_db
 from market_billing import TIERS
-from server_deps import require_admin
+from server_deps import get_db_dep, require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,7 @@ def admin_contacts(
     offset: int = Query(default=0, ge=0),
     fmt: str = Query(default="json", alias="format", description="json or csv"),
     authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
 ):
     """List lead emails captured via the landing contact forms.
 
@@ -84,31 +85,27 @@ def admin_contacts(
     ?format=csv  — download as CSV
     """
     require_admin(authorization)
-    db = get_db()
-    try:
-        if plan:
-            rows = db.execute(
-                """
-                SELECT username AS email, first_name AS name, last_message, created_at
-                FROM contacts
-                WHERE last_message LIKE ?
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (f"[{plan}%", limit, offset),
-            ).fetchall()
-        else:
-            rows = db.execute(
-                """
-                SELECT username AS email, first_name AS name, last_message, created_at
-                FROM contacts
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (limit, offset),
-            ).fetchall()
-    finally:
-        db.close()
+    if plan:
+        rows = db.execute(
+            """
+            SELECT username AS email, first_name AS name, last_message, created_at
+            FROM contacts
+            WHERE last_message LIKE ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (f"[{plan}%", limit, offset),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            """
+            SELECT username AS email, first_name AS name, last_message, created_at
+            FROM contacts
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        ).fetchall()
 
     contacts = []
     for r in rows:

@@ -23,11 +23,11 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, field_validator
 
-from market_core import STORES, get_db
+from market_core import STORES
 from market_enrich_subcategory import ENRICH_SUBCATEGORIES, get_subcategory_enrichment
 from market_units import price_per_base_unit
 from market_indicators import (
@@ -41,7 +41,7 @@ from market_indicators import (
     refresh_indicators,
 )
 
-from server_deps import require_api_key, require_pro
+from server_deps import get_db_dep, require_api_key, require_pro
 
 router = APIRouter(tags=["intel"])
 
@@ -75,6 +75,7 @@ def inflation_tracker(
     days: int = 30,
     limit: int = 100,
     authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
 ):
     require_api_key(authorization)
     _ck = ("inflation", country, line, days, limit)
@@ -85,7 +86,6 @@ def inflation_tracker(
     Compares earliest vs latest snapshot per product name in the window.
     Intended for agent-facing inflation signals — not official CPI indices.
     """
-    db = get_db()
     since = _since_iso(days)
     q = (
         "SELECT product_id, name, store, store_name, currency, price, queried_at "
@@ -102,10 +102,7 @@ def inflation_tracker(
         params.append(line)
     # No inner LIMIT — we need the full window to find earliest+latest per product.
     # The outer items[:limit] caps the response size.
-    try:
-        rows = db.execute(q, params).fetchall()
-    finally:
-        db.close()
+    rows = db.execute(q, params).fetchall()
 
     prods: dict[str, list[dict]] = {}
     for r in rows:
@@ -186,10 +183,10 @@ def intel_alerts(
     threshold_pct: float = 5.0,
     limit: int = 10,
     authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
 ):
     require_api_key(authorization)
     """Price alerts from price_history when delta exceeds threshold_pct."""
-    db = get_db()
     since = _since_iso(30)
     q = """
         SELECT ph.product_id, ph.store, ph.price, ph.recorded_at, ps.name, ps.store_name, ps.currency
@@ -204,10 +201,7 @@ def intel_alerts(
         params.append(store)
     q += " ORDER BY ph.recorded_at DESC LIMIT ?"
     params.append(limit * 20)
-    try:
-        rows = db.execute(q, params).fetchall()
-    finally:
-        db.close()
+    rows = db.execute(q, params).fetchall()
 
     series: dict[str, list] = {}
     for r in rows:
@@ -264,14 +258,11 @@ def get_indicator(
     line: str | None = None,
     limit: int = 30,
     authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
 ):
     require_api_key(authorization)
     """Latest time-series points for one indicator."""
-    db = get_db()
-    try:
-        values = get_latest_values(db, indicator_key=indicator_key, country=country, line=line, limit=limit)
-    finally:
-        db.close()
+    values = get_latest_values(db, indicator_key=indicator_key, country=country, line=line, limit=limit)
     meta = next((i for i in get_indicator_catalog() if i["key"] == indicator_key), None)
     return {
         "key": indicator_key,
@@ -295,14 +286,10 @@ def intel_scores(country: str | None = None, line: str | None = None, authorizat
 
 
 @router.get("/v1/intel/basket-stress")
-def basket_stress(country: str | None = None, authorization: str | None = Header(None)):
+def basket_stress(country: str | None = None, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     require_api_key(authorization)
     """Minimum canasta básica stress index for a country."""
-    db = get_db()
-    try:
-        value = compute_basket_stress(db, country)
-    finally:
-        db.close()
+    value = compute_basket_stress(db, country)
     return {
         "country": country,
         "basket_stress_index": value,
@@ -322,6 +309,7 @@ def intel_brief(
     days: int = 7,
     include_catalog: bool = False,
     authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
 ):
     require_api_key(authorization)
     """Aggregated intel brief: scores, enrichment, subcategory signals, and optionally the catalog.
@@ -333,15 +321,11 @@ def intel_brief(
     _ck = ("brief", country, line, days, include_catalog)
     if (cached := _cache_get(_ck)) is not None:
         return cached
-    db = get_db()
-    try:
-        scores = compute_composite_scores(country=country, line=line)
-        basket_stress_value = compute_basket_stress(db, country)
-        all_values = get_latest_values(db, country=country, limit=80)
-        cc = (country or "PE").upper()
-        subcategory_items = get_subcategory_enrichment(db, cc)
-    finally:
-        db.close()
+    scores = compute_composite_scores(country=country, line=line)
+    basket_stress_value = compute_basket_stress(db, country)
+    all_values = get_latest_values(db, country=country, limit=80)
+    cc = (country or "PE").upper()
+    subcategory_items = get_subcategory_enrichment(db, cc)
 
     enrichment_indicators = [v for v in all_values if v.get("key") in ENRICHMENT_INDICATOR_KEYS]
     analytics_indicators = [v for v in all_values if v.get("key") in TIER2_INDICATOR_KEYS]
@@ -455,23 +439,19 @@ def intel_forecast(
     horizon_days: int = Query(default=21, ge=1, le=90),
     lookback_days: int = Query(default=90, ge=7, le=365),
     authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
 ):
     """Price forecast from price_history — Walmart Labs procurement signal."""
     require_api_key(authorization)
     from market_predict import forecast_product_price
 
-    db = get_db()
-    try:
-        result = forecast_product_price(
-            db,
-            product,
-            country=(country or "PE").upper()[:2],
-            horizon_days=horizon_days,
-            lookback_days=lookback_days,
-        )
-    finally:
-        db.close()
-    return result
+    return forecast_product_price(
+        db,
+        product,
+        country=(country or "PE").upper()[:2],
+        horizon_days=horizon_days,
+        lookback_days=lookback_days,
+    )
 
 
 @router.get("/v1/intel/arbitrage")
@@ -481,6 +461,7 @@ def intel_arbitrage(
     countries: str | None = Query(default=None, description="Comma-separated ISO codes, e.g. PE,MX,CL"),
     min_spread_pct: float = Query(default=10.0, ge=0),
     authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
 ):
     """Cross-border shelf-price arbitrage — buy country vs sell country in USD."""
     require_api_key(authorization)
@@ -489,25 +470,19 @@ def intel_arbitrage(
     scope = [c.strip().upper()[:2] for c in (countries or "").split(",") if c.strip()] or None
     if not canonical_product_id and not product:
         raise HTTPException(status_code=400, detail="product or canonical_id required")
-    db = get_db()
-    try:
-        if canonical_product_id:
-            result = detect_arbitrage_canonical(
-                db,
-                canonical_product_id,
-                countries=scope,
-                min_spread_pct=min_spread_pct,
-            )
-        else:
-            result = detect_arbitrage(
-                db,
-                product,
-                countries=scope,
-                min_spread_pct=min_spread_pct,
-            )
-    finally:
-        db.close()
-    return result
+    if canonical_product_id:
+        return detect_arbitrage_canonical(
+            db,
+            canonical_product_id,
+            countries=scope,
+            min_spread_pct=min_spread_pct,
+        )
+    return detect_arbitrage(
+        db,
+        product,
+        countries=scope,
+        min_spread_pct=min_spread_pct,
+    )
 
 
 @router.post("/v1/intel/refresh")
@@ -519,14 +494,10 @@ def intel_refresh(country: str | None = None, line: str | None = None, authoriza
 
 
 @router.get("/v1/intel/enrichment")
-def intel_enrichment(country: str | None = None, limit: int = 20, authorization: str | None = Header(None)):
+def intel_enrichment(country: str | None = None, limit: int = 20, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     require_api_key(authorization)
     """Latest enrichment indicators (OFF, Wikimedia, weather, food CPI) for a country."""
-    db = get_db()
-    try:
-        values = get_latest_values(db, country=country, limit=limit * 3)
-    finally:
-        db.close()
+    values = get_latest_values(db, country=country, limit=limit * 3)
     keys = ENRICHMENT_INDICATOR_KEYS
     enriched = [v for v in values if v.get("key") in keys]
     return {
@@ -547,14 +518,10 @@ def intel_enrichment(country: str | None = None, limit: int = 20, authorization:
 
 
 @router.get("/v1/intel/enrichment/subcategories")
-def intel_enrichment_subcategories(country: str = "PE", authorization: str | None = Header(None)):
+def intel_enrichment_subcategories(country: str = "PE", authorization: str | None = Header(None), db = Depends(get_db_dep)):
     require_api_key(authorization)
     """Per-subcategory signals: price momentum, wiki demand, min shelf price."""
-    db = get_db()
-    try:
-        items = get_subcategory_enrichment(db, country)
-    finally:
-        db.close()
+    items = get_subcategory_enrichment(db, country)
     return {
         "country": country.upper(),
         "subcategories": ENRICH_SUBCATEGORIES,

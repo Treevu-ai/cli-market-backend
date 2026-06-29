@@ -21,7 +21,7 @@ import re
 import unicodedata
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, field_validator
 
 from market_core import (
@@ -36,7 +36,7 @@ from market_core import (
     save_search_query,
 )
 from store_credentials import get_store_profile, store_exists
-from server_deps import require_api_key
+from server_deps import get_db_dep, require_api_key
 from index_gate import enrich_list, infer_category
 from http_retry import request_with_retry
 
@@ -491,18 +491,14 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
 
 
 @router.get("/products/stock/{product_id}")
-def product_stock(product_id: str, store: str, authorization: str | None = Header(None)):
+def product_stock(product_id: str, store: str, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     """Latest stock snapshot for a product in a specific store."""
     require_api_key(authorization)
-    db = get_db()
-    try:
-        row = db.execute(
-            "SELECT stock, name, store_name FROM price_snapshots "
-            "WHERE product_id=? AND store=? ORDER BY queried_at DESC LIMIT 1",
-            (product_id, store),
-        ).fetchone()
-    finally:
-        db.close()
+    row = db.execute(
+        "SELECT stock, name, store_name FROM price_snapshots "
+        "WHERE product_id=? AND store=? ORDER BY queried_at DESC LIMIT 1",
+        (product_id, store),
+    ).fetchone()
     if not row:
         return {"product_id": product_id, "store": store, "stock": None, "message": "No data"}
     return {

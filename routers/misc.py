@@ -12,11 +12,11 @@ import logging
 import os
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from market_core import COUNTRIES, FX_PEN_PER_UNIT, LINES, STORES, convert_currency, get_db
 from market_stats import MCP_TOOLS
-from server_deps import require_api_key
+from server_deps import get_db_dep, require_api_key
 
 logger = logging.getLogger("market.server").getChild("misc")
 
@@ -26,35 +26,31 @@ router = APIRouter(tags=["misc"])
 # ── Favorites ─────────────────────────────────────────────────────────────────
 
 @router.post("/favorites")
-def favorites(body: dict, authorization: str | None = Header(None)):
+def favorites(body: dict, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     """Manage favorite products. action ∈ {'list', 'add', 'remove'}."""
     username = require_api_key(authorization)
     action = body.get("action", "list")
-    db = get_db()
-    try:
-        if action == "add":
-            db.execute(
-                "INSERT OR IGNORE INTO app_favorites (username, product_id, name, store) VALUES (?,?,?,?)",
-                (
-                    username,
-                    body.get("product_id", ""),
-                    body.get("name", ""),
-                    body.get("store", ""),
-                ),
-            )
-            db.commit()
-        elif action == "remove":
-            db.execute(
-                "DELETE FROM app_favorites WHERE username=? AND product_id=?",
-                (username, body.get("product_id", "")),
-            )
-            db.commit()
-        rows = db.execute(
-            "SELECT product_id, name, store FROM app_favorites WHERE username=? ORDER BY product_id",
-            (username,),
-        ).fetchall()
-    finally:
-        db.close()
+    if action == "add":
+        db.execute(
+            "INSERT OR IGNORE INTO app_favorites (username, product_id, name, store) VALUES (?,?,?,?)",
+            (
+                username,
+                body.get("product_id", ""),
+                body.get("name", ""),
+                body.get("store", ""),
+            ),
+        )
+        db.commit()
+    elif action == "remove":
+        db.execute(
+            "DELETE FROM app_favorites WHERE username=? AND product_id=?",
+            (username, body.get("product_id", "")),
+        )
+        db.commit()
+    rows = db.execute(
+        "SELECT product_id, name, store FROM app_favorites WHERE username=? ORDER BY product_id",
+        (username,),
+    ).fetchall()
     return {"favorites": [dict(r) for r in rows], "total": len(rows)}
 
 
