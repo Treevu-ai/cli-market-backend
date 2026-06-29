@@ -495,12 +495,14 @@ def product_stock(product_id: str, store: str, authorization: str | None = Heade
     """Latest stock snapshot for a product in a specific store."""
     require_api_key(authorization)
     db = get_db()
-    row = db.execute(
-        "SELECT stock, name, store_name FROM price_snapshots "
-        "WHERE product_id=? AND store=? ORDER BY queried_at DESC LIMIT 1",
-        (product_id, store),
-    ).fetchone()
-    db.close()
+    try:
+        row = db.execute(
+            "SELECT stock, name, store_name FROM price_snapshots "
+            "WHERE product_id=? AND store=? ORDER BY queried_at DESC LIMIT 1",
+            (product_id, store),
+        ).fetchone()
+    finally:
+        db.close()
     if not row:
         return {"product_id": product_id, "store": store, "stock": None, "message": "No data"}
     return {

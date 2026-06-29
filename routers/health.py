@@ -192,21 +192,23 @@ def health_collector():
     try:
         db = get_db()
         try:
-            last = db.execute(
-                "SELECT started_at, finished_at, stores_attempted, stores_succeeded, "
-                "prices_collected, stores_with_yield "
-                "FROM collector_runs ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-        except Exception:
-            last = db.execute(
-                "SELECT started_at, finished_at, stores_attempted, stores_succeeded, prices_collected "
-                "FROM collector_runs ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-        total_runs = db.execute("SELECT COUNT(*) as n FROM collector_runs").fetchone()["n"]
-        active_stores = db.execute(
-            "SELECT COUNT(DISTINCT store) as n FROM price_snapshots WHERE price > 0"
-        ).fetchone()["n"]
-        db.close()
+            try:
+                last = db.execute(
+                    "SELECT started_at, finished_at, stores_attempted, stores_succeeded, "
+                    "prices_collected, stores_with_yield "
+                    "FROM collector_runs ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+            except Exception:
+                last = db.execute(
+                    "SELECT started_at, finished_at, stores_attempted, stores_succeeded, prices_collected "
+                    "FROM collector_runs ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+            total_runs = db.execute("SELECT COUNT(*) as n FROM collector_runs").fetchone()["n"]
+            active_stores = db.execute(
+                "SELECT COUNT(DISTINCT store) as n FROM price_snapshots WHERE price > 0"
+            ).fetchone()["n"]
+        finally:
+            db.close()
     except Exception:
         return {"status": "unknown", "error": "Database not initialized"}
 

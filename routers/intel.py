@@ -102,8 +102,10 @@ def inflation_tracker(
         params.append(line)
     # No inner LIMIT — we need the full window to find earliest+latest per product.
     # The outer items[:limit] caps the response size.
-    rows = db.execute(q, params).fetchall()
-    db.close()
+    try:
+        rows = db.execute(q, params).fetchall()
+    finally:
+        db.close()
 
     prods: dict[str, list[dict]] = {}
     for r in rows:
@@ -202,8 +204,10 @@ def intel_alerts(
         params.append(store)
     q += " ORDER BY ph.recorded_at DESC LIMIT ?"
     params.append(limit * 20)
-    rows = db.execute(q, params).fetchall()
-    db.close()
+    try:
+        rows = db.execute(q, params).fetchall()
+    finally:
+        db.close()
 
     series: dict[str, list] = {}
     for r in rows:
@@ -264,8 +268,10 @@ def get_indicator(
     require_api_key(authorization)
     """Latest time-series points for one indicator."""
     db = get_db()
-    values = get_latest_values(db, indicator_key=indicator_key, country=country, line=line, limit=limit)
-    db.close()
+    try:
+        values = get_latest_values(db, indicator_key=indicator_key, country=country, line=line, limit=limit)
+    finally:
+        db.close()
     meta = next((i for i in get_indicator_catalog() if i["key"] == indicator_key), None)
     return {
         "key": indicator_key,
@@ -293,8 +299,10 @@ def basket_stress(country: str | None = None, authorization: str | None = Header
     require_api_key(authorization)
     """Minimum canasta básica stress index for a country."""
     db = get_db()
-    value = compute_basket_stress(db, country)
-    db.close()
+    try:
+        value = compute_basket_stress(db, country)
+    finally:
+        db.close()
     return {
         "country": country,
         "basket_stress_index": value,
@@ -326,18 +334,17 @@ def intel_brief(
     if (cached := _cache_get(_ck)) is not None:
         return cached
     db = get_db()
+    try:
+        scores = compute_composite_scores(country=country, line=line)
+        basket_stress_value = compute_basket_stress(db, country)
+        all_values = get_latest_values(db, country=country, limit=80)
+        cc = (country or "PE").upper()
+        subcategory_items = get_subcategory_enrichment(db, cc)
+    finally:
+        db.close()
 
-    scores = compute_composite_scores(country=country, line=line)
-    basket_stress_value = compute_basket_stress(db, country)
-
-    all_values = get_latest_values(db, country=country, limit=80)
     enrichment_indicators = [v for v in all_values if v.get("key") in ENRICHMENT_INDICATOR_KEYS]
     analytics_indicators = [v for v in all_values if v.get("key") in TIER2_INDICATOR_KEYS]
-
-    cc = (country or "PE").upper()
-    subcategory_items = get_subcategory_enrichment(db, cc)
-
-    db.close()
 
     def _val(key: str) -> float | None:
         for v in all_values:
@@ -454,14 +461,16 @@ def intel_forecast(
     from market_predict import forecast_product_price
 
     db = get_db()
-    result = forecast_product_price(
-        db,
-        product,
-        country=(country or "PE").upper()[:2],
-        horizon_days=horizon_days,
-        lookback_days=lookback_days,
-    )
-    db.close()
+    try:
+        result = forecast_product_price(
+            db,
+            product,
+            country=(country or "PE").upper()[:2],
+            horizon_days=horizon_days,
+            lookback_days=lookback_days,
+        )
+    finally:
+        db.close()
     return result
 
 
@@ -478,25 +487,26 @@ def intel_arbitrage(
     from market_predict import detect_arbitrage, detect_arbitrage_canonical
 
     scope = [c.strip().upper()[:2] for c in (countries or "").split(",") if c.strip()] or None
+    if not canonical_product_id and not product:
+        raise HTTPException(status_code=400, detail="product or canonical_id required")
     db = get_db()
-    if canonical_product_id:
-        result = detect_arbitrage_canonical(
-            db,
-            canonical_product_id,
-            countries=scope,
-            min_spread_pct=min_spread_pct,
-        )
-    else:
-        if not product:
-            db.close()
-            raise HTTPException(status_code=400, detail="product or canonical_id required")
-        result = detect_arbitrage(
-            db,
-            product,
-            countries=scope,
-            min_spread_pct=min_spread_pct,
-        )
-    db.close()
+    try:
+        if canonical_product_id:
+            result = detect_arbitrage_canonical(
+                db,
+                canonical_product_id,
+                countries=scope,
+                min_spread_pct=min_spread_pct,
+            )
+        else:
+            result = detect_arbitrage(
+                db,
+                product,
+                countries=scope,
+                min_spread_pct=min_spread_pct,
+            )
+    finally:
+        db.close()
     return result
 
 
@@ -513,10 +523,12 @@ def intel_enrichment(country: str | None = None, limit: int = 20, authorization:
     require_api_key(authorization)
     """Latest enrichment indicators (OFF, Wikimedia, weather, food CPI) for a country."""
     db = get_db()
+    try:
+        values = get_latest_values(db, country=country, limit=limit * 3)
+    finally:
+        db.close()
     keys = ENRICHMENT_INDICATOR_KEYS
-    values = get_latest_values(db, country=country, limit=limit * 3)
     enriched = [v for v in values if v.get("key") in keys]
-    db.close()
     return {
         "country": country,
         "count": len(enriched),
@@ -539,8 +551,10 @@ def intel_enrichment_subcategories(country: str = "PE", authorization: str | Non
     require_api_key(authorization)
     """Per-subcategory signals: price momentum, wiki demand, min shelf price."""
     db = get_db()
-    items = get_subcategory_enrichment(db, country)
-    db.close()
+    try:
+        items = get_subcategory_enrichment(db, country)
+    finally:
+        db.close()
     return {
         "country": country.upper(),
         "subcategories": ENRICH_SUBCATEGORIES,

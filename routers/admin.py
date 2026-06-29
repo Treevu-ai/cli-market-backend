@@ -85,28 +85,30 @@ def admin_contacts(
     """
     require_admin(authorization)
     db = get_db()
-    if plan:
-        rows = db.execute(
-            """
-            SELECT username AS email, first_name AS name, last_message, created_at
-            FROM contacts
-            WHERE last_message LIKE ?
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-            """,
-            (f"[{plan}%", limit, offset),
-        ).fetchall()
-    else:
-        rows = db.execute(
-            """
-            SELECT username AS email, first_name AS name, last_message, created_at
-            FROM contacts
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-            """,
-            (limit, offset),
-        ).fetchall()
-    db.close()
+    try:
+        if plan:
+            rows = db.execute(
+                """
+                SELECT username AS email, first_name AS name, last_message, created_at
+                FROM contacts
+                WHERE last_message LIKE ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (f"[{plan}%", limit, offset),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """
+                SELECT username AS email, first_name AS name, last_message, created_at
+                FROM contacts
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+    finally:
+        db.close()
 
     contacts = []
     for r in rows:
