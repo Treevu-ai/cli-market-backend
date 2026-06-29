@@ -454,16 +454,7 @@ def _dashboard_data():
     suspect_discounts_raw = [r for r in all_discount_rows if (r["discount_pct"] or 0) >= 90][:20]
     suspect_discounts = [dict(r) | {"confidence": "suspect"} for r in suspect_discounts_raw]
 
-    # ── Cheapest store by line ───────────────────────────────────────────────
-    cheapest_by_line = db.execute(
-        """
-        SELECT line, line_name, store_name, ROUND(AVG(price)::numeric,2) as avg_price, currency, COUNT(*) as n
-        FROM price_snapshots WHERE price > 0 AND price < 999999
-          AND line_name IS NOT NULL AND line_name != ''
-        GROUP BY line, line_name, store, store_name, currency ORDER BY line, avg_price ASC
-        """
-    ).fetchall()
-
+    # ── Cheapest store by line — derived from spread_rows (no extra query) ───
     line_display: dict[str, str] = {
         "supermercados": "Supermercados",
         "farmacias": "Farmacias",
@@ -472,13 +463,38 @@ def _dashboard_data():
         "hogar": "Hogar",
         "departamentales": "Departamentales",
     }
+    # Aggregate avg_price + count per (line, line_name, store_name, currency) in Python.
+    _cbl_acc: dict[tuple, list] = {}  # key -> [sum_price, count, line_name, store_name, currency]
+    for r in spread_rows:
+        ln_raw = r["line_name"] or ""
+        if not ln_raw:
+            continue
+        key = (r["line"] or "", ln_raw, r["store_name"] or "", r["currency"] or "")
+        if key not in _cbl_acc:
+            _cbl_acc[key] = [0.0, 0, ln_raw, r["store_name"] or "", r["currency"] or ""]
+        _cbl_acc[key][0] += float(r["price"])
+        _cbl_acc[key][1] += 1
+
+    _cbl_rows = sorted(
+        [
+            {
+                "line": k[0],
+                "line_name": v[2],
+                "store_name": v[3],
+                "avg_price": round(v[0] / v[1], 2),
+                "currency": v[4],
+                "n": v[1],
+            }
+            for k, v in _cbl_acc.items()
+        ],
+        key=lambda x: (x["line"], x["avg_price"]),
+    )
     seen_lines: set[str] = set()
     cheapest_dedup: list[dict] = []
-    for r in cheapest_by_line:
-        ln = r["line_name"] or line_display.get(r.get("line", ""), r.get("line", "?"))
+    for item in _cbl_rows:
+        ln = item["line_name"] or line_display.get(item["line"], item["line"] or "?")
         if ln and ln not in seen_lines:
             seen_lines.add(ln)
-            item = dict(r)
             item["line_name"] = ln
             cheapest_dedup.append(item)
 

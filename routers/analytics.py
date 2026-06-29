@@ -43,8 +43,10 @@ def price_history(
         params.append(line)
     q += " ORDER BY queried_at DESC LIMIT ?"
     params.append(limit)
-    rows = db.execute(q, params).fetchall()
-    db.close()
+    try:
+        rows = db.execute(q, params).fetchall()
+    finally:
+        db.close()
     snapshots = [dict(r) for r in rows]
     enrich_list(snapshots)
     return {"count": len(snapshots), "snapshots": snapshots}
@@ -91,20 +93,21 @@ def analytics_trending(country: str | None = None, line: str | None = None, limi
             s for s, sv in STORES.items()
             if sv.get("country", "").upper() == country.upper()
         ]
-        if country_stores:
-            placeholders = ",".join("?" * len(country_stores))
-            q += f" AND store IN ({placeholders})"
-            params.extend(country_stores)
-        else:
+        if not country_stores:
             db.close()
             return {"trending": [], "total": 0, "filter": {"country": country}}
+        placeholders = ",".join("?" * len(country_stores))
+        q += f" AND store IN ({placeholders})"
+        params.extend(country_stores)
     if line:
         q += " AND line = ?"
         params.append(line)
     q += " ORDER BY queried_at DESC LIMIT ?"
     params.append(limit * 2)
-    rows = db.execute(q, params).fetchall()
-    db.close()
+    try:
+        rows = db.execute(q, params).fetchall()
+    finally:
+        db.close()
     trending = [dict(r) for r in rows]
     enrich_list(trending)
     return {"trending": trending, "total": len(trending)}
@@ -122,8 +125,10 @@ def analytics_brands(line: str | None = None, country: str | None = None, limit:
         params.append(line)
     q += " GROUP BY brand ORDER BY count DESC LIMIT ?"
     params.append(limit)
-    rows = db.execute(q, params).fetchall()
-    db.close()
+    try:
+        rows = db.execute(q, params).fetchall()
+    finally:
+        db.close()
     return {"brands": [dict(r) for r in rows], "total": len(rows)}
 
 
@@ -137,8 +142,10 @@ def analytics_indicators(
     require_api_key(authorization)
     """Latest indicator values from the data moat (internal + public API sources)."""
     db = get_db()
-    values = get_latest_values(db, country=country, line=line, limit=limit)
-    db.close()
+    try:
+        values = get_latest_values(db, country=country, line=line, limit=limit)
+    finally:
+        db.close()
     return {
         "count": len(values),
         "catalog_size": len(get_indicator_catalog()),
