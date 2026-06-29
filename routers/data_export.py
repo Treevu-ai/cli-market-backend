@@ -38,17 +38,18 @@ def data_export(body: dict, authorization: str | None = Header(None)):
             s for s, sv in STORES.items()
             if sv.get("country", "").upper() == country.upper()
         ]
-        if country_stores:
-            placeholders = ",".join("?" * len(country_stores))
-            q += f" AND store IN ({placeholders})"
-            params.extend(country_stores)
-        else:
+        if not country_stores:
             db.close()
             return {"format": fmt, "data": [], "total": 0, "filter": {"country": country}}
+        placeholders = ",".join("?" * len(country_stores))
+        q += f" AND store IN ({placeholders})"
+        params.extend(country_stores)
     q += " ORDER BY queried_at DESC LIMIT ?"
     params.append(limit)
-    rows = db.execute(q, params).fetchall()
-    db.close()
+    try:
+        rows = db.execute(q, params).fetchall()
+    finally:
+        db.close()
     data = [dict(r) for r in rows]
     if fmt == "csv":
         buf = io.StringIO()
@@ -81,8 +82,10 @@ def data_export_history(body: dict, authorization: str | None = Header(None)):
         params.append(store)
     q += " ORDER BY queried_at DESC LIMIT ?"
     params.append(limit)
-    rows = db.execute(q, params).fetchall()
-    db.close()
+    try:
+        rows = db.execute(q, params).fetchall()
+    finally:
+        db.close()
     data = [dict(r) for r in rows]
     prices = [r["price"] for r in data if r.get("price")]
     if fmt == "csv":
