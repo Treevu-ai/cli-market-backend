@@ -11,23 +11,22 @@ import csv as _csv
 import io
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends, Header
 
-from market_core import STORES, get_db
-from server_deps import require_api_key
+from market_core import STORES
+from server_deps import get_db_dep, require_api_key
 
 router = APIRouter(tags=["data-export"])
 
 
 @router.post("/v1/data/export")
-def data_export(body: dict, authorization: str | None = Header(None)):
+def data_export(body: dict, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     """Export data moat as JSON or CSV. Supports filters: country, line, limit (≤1000)."""
     require_api_key(authorization)
     country = body.get("country")
     line = body.get("line")
     fmt = body.get("format", "json")
     limit = min(body.get("limit", 100), 1000)
-    db = get_db()
     q = "SELECT * FROM price_snapshots WHERE price > 0"
     params: list = []
     if line:
@@ -39,17 +38,13 @@ def data_export(body: dict, authorization: str | None = Header(None)):
             if sv.get("country", "").upper() == country.upper()
         ]
         if not country_stores:
-            db.close()
             return {"format": fmt, "data": [], "total": 0, "filter": {"country": country}}
         placeholders = ",".join("?" * len(country_stores))
         q += f" AND store IN ({placeholders})"
         params.extend(country_stores)
     q += " ORDER BY queried_at DESC LIMIT ?"
     params.append(limit)
-    try:
-        rows = db.execute(q, params).fetchall()
-    finally:
-        db.close()
+    rows = db.execute(q, params).fetchall()
     data = [dict(r) for r in rows]
     if fmt == "csv":
         buf = io.StringIO()
@@ -62,7 +57,7 @@ def data_export(body: dict, authorization: str | None = Header(None)):
 
 
 @router.post("/v1/data/export-history")
-def data_export_history(body: dict, authorization: str | None = Header(None)):
+def data_export_history(body: dict, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     """Export historical price data with date range and filters."""
     require_api_key(authorization)
     days = body.get("days", 30)
@@ -71,7 +66,6 @@ def data_export_history(body: dict, authorization: str | None = Header(None)):
     store = body.get("store")
     fmt = body.get("format", "json")
     limit = min(body.get("limit", 500), 5000)
-    db = get_db()
     q = "SELECT * FROM price_snapshots WHERE price > 0 AND queried_at >= ?"
     params: list = [since]
     if line:
@@ -82,10 +76,7 @@ def data_export_history(body: dict, authorization: str | None = Header(None)):
         params.append(store)
     q += " ORDER BY queried_at DESC LIMIT ?"
     params.append(limit)
-    try:
-        rows = db.execute(q, params).fetchall()
-    finally:
-        db.close()
+    rows = db.execute(q, params).fetchall()
     data = [dict(r) for r in rows]
     prices = [r["price"] for r in data if r.get("price")]
     if fmt == "csv":

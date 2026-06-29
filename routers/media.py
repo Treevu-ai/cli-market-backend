@@ -21,11 +21,10 @@ import subprocess
 import tempfile
 
 import httpx
-from fastapi import APIRouter, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 
-from market_core import get_db
 from market_security import validate_public_http_url
-from server_deps import require_api_key
+from server_deps import get_db_dep, require_api_key
 
 router = APIRouter(tags=["media"])
 
@@ -48,7 +47,7 @@ async def _fetch_public_url(url: str) -> bytes:
 # ── Ticket scanning (OCR via tesseract) ───────────────────────────────────────
 
 @router.post("/v1/ticket/scan")
-async def ticket_scan(file: UploadFile = File(...), country: str | None = None, authorization: str | None = Header(None)):
+async def ticket_scan(file: UploadFile = File(...), country: str | None = None, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     require_api_key(authorization)
     """Upload a ticket image → OCR → match each line against the data moat
     to surface potential savings vs the cheapest known store."""
@@ -66,31 +65,27 @@ async def ticket_scan(file: UploadFile = File(...), country: str | None = None, 
     finally:
         os.unlink(tmp_path)
     lines = [ln.strip() for ln in ocr_text.split("\n") if ln.strip() and len(ln.strip()) > 3]
-    db = get_db()
     items_found: list[dict] = []
-    try:
-        for line in lines[:20]:
-            words = line.split()
-            if len(words) < 2:
-                continue
-            query = "%" + "%".join(words[:3]) + "%"
-            row = db.execute(
-                "SELECT name, store_name, price, currency FROM price_snapshots "
-                "WHERE name LIKE ? ORDER BY price ASC LIMIT 1",
-                (query,),
-            ).fetchone()
-            if row:
-                items_found.append(
-                    {
-                        "ticket_text": line[:50],
-                        "best_match": row["name"],
-                        "store": row["store_name"],
-                        "price": row["price"],
-                        "currency": row["currency"],
-                    }
-                )
-    finally:
-        db.close()
+    for line in lines[:20]:
+        words = line.split()
+        if len(words) < 2:
+            continue
+        query = "%" + "%".join(words[:3]) + "%"
+        row = db.execute(
+            "SELECT name, store_name, price, currency FROM price_snapshots "
+            "WHERE name LIKE ? ORDER BY price ASC LIMIT 1",
+            (query,),
+        ).fetchone()
+        if row:
+            items_found.append(
+                {
+                    "ticket_text": line[:50],
+                    "best_match": row["name"],
+                    "store": row["store_name"],
+                    "price": row["price"],
+                    "currency": row["currency"],
+                }
+            )
     savings = sum((i.get("price", 0) or 0) for i in items_found) if items_found else 0
     return {
         "ocr_text": ocr_text[:500],

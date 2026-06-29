@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+from typing import Annotated, Generator
 
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 
 from market_core import (
     check_rate_limit_sqlite,
@@ -23,7 +24,21 @@ from market_core import (
     db_get_users,
     db_record_auth_failure,
     db_validate_api_key,
+    get_db,
 )
+from market_core.market_db import _DB
+
+
+def get_db_dep() -> Generator[_DB, None, None]:
+    """FastAPI dependency: open one DB connection per request, close on exit."""
+    db = get_db()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+DbDep = Annotated[_DB, Depends(get_db_dep)]
 
 
 # ── Auth tokens ───────────────────────────────────────────────────────────────

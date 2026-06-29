@@ -18,7 +18,7 @@ import logging
 import os
 import uuid
 
-from fastapi import APIRouter, Body, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from market_core import (
@@ -33,6 +33,7 @@ from market_core import (
 from server_deps import (
     check_auth_brute_force,
     check_rate_limit,
+    get_db_dep,
     hash_password,
     record_auth_failure,
     require_user,
@@ -238,13 +239,12 @@ class ReferralRegisterRequest(BaseModel):
 
 
 @router.post("/auth/referral")
-def referral_register(body: ReferralRegisterRequest, authorization: str | None = Header(None)):
+def referral_register(body: ReferralRegisterRequest, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     """Register or refresh a user's referral code.
 
     Idempotent: calling again with the same code is a no-op;
     calling with a new code replaces the old one.
     """
-    from market_core import get_db
     username = ""
     try:
         username = require_user(authorization)
@@ -255,49 +255,40 @@ def referral_register(body: ReferralRegisterRequest, authorization: str | None =
     if not code:
         raise HTTPException(status_code=422, detail="ref_code is required")
 
-    db = get_db()
-    try:
-        db.execute(
-            """
-            INSERT INTO referral_codes (ref_code, username, install_count, activated_count)
-            VALUES (?, ?, 1, 0)
-            ON CONFLICT(ref_code) DO UPDATE SET install_count = referral_codes.install_count + 1
-            """,
-            [code, username],
-        )
-        db.commit()
-        row = db.execute(
-            "SELECT ref_code, username, install_count, activated_count, created_at FROM referral_codes WHERE ref_code = ?",
-            [code],
-        ).fetchone()
-        if row:
-            return dict(row)
-        return {"ref_code": code, "username": username, "install_count": 1}
-    finally:
-        db.close()
+    db.execute(
+        """
+        INSERT INTO referral_codes (ref_code, username, install_count, activated_count)
+        VALUES (?, ?, 1, 0)
+        ON CONFLICT(ref_code) DO UPDATE SET install_count = referral_codes.install_count + 1
+        """,
+        [code, username],
+    )
+    db.commit()
+    row = db.execute(
+        "SELECT ref_code, username, install_count, activated_count, created_at FROM referral_codes WHERE ref_code = ?",
+        [code],
+    ).fetchone()
+    if row:
+        return dict(row)
+    return {"ref_code": code, "username": username, "install_count": 1}
 
 
 @router.get("/auth/referral/stats")
-def referral_stats(authorization: str | None = Header(None)):
+def referral_stats(authorization: str | None = Header(None), db = Depends(get_db_dep)):
     """Return referral stats for the authenticated user."""
-    from market_core import get_db
     username = require_user(authorization)
-    db = get_db()
-    try:
-        rows = db.execute(
-            "SELECT ref_code, install_count, activated_count, created_at FROM referral_codes WHERE username = ? ORDER BY install_count DESC",
-            [username],
-        ).fetchall()
-        total_installs = sum(r["install_count"] for r in rows)
-        total_activated = sum(r["activated_count"] for r in rows)
-        return {
-            "username": username,
-            "total_installs": total_installs,
-            "total_activated": total_activated,
-            "codes": [dict(r) for r in rows],
-        }
-    finally:
-        db.close()
+    rows = db.execute(
+        "SELECT ref_code, install_count, activated_count, created_at FROM referral_codes WHERE username = ? ORDER BY install_count DESC",
+        [username],
+    ).fetchall()
+    total_installs = sum(r["install_count"] for r in rows)
+    total_activated = sum(r["activated_count"] for r in rows)
+    return {
+        "username": username,
+        "total_installs": total_installs,
+        "total_activated": total_activated,
+        "codes": [dict(r) for r in rows],
+    }
 
 
 @router.post("/auth/procure-magic-exchange")

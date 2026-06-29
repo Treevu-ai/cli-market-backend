@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from market_connectors.sunat_invoicing import get_company, get_sunat_ruc
@@ -26,9 +26,8 @@ from market_core import (
     db_create_order,
     db_get_cart,
     db_get_orders,
-    get_db,
 )
-from server_deps import require_api_key
+from server_deps import get_db_dep, require_api_key
 from market_core import user_can_checkout
 from index_gate import enrich_list
 
@@ -98,13 +97,9 @@ def _fetch_order_with_items(db, order_id: str, username: str):
 
 
 @router.get("/orders/{order_id}")
-def order_status(order_id: str, authorization: str | None = Header(None)):
+def order_status(order_id: str, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     username = require_api_key(authorization)
-    db = get_db()
-    try:
-        order, items = _fetch_order_with_items(db, order_id, username)
-    finally:
-        db.close()
+    order, items = _fetch_order_with_items(db, order_id, username)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     enrich_list(items)
@@ -112,18 +107,14 @@ def order_status(order_id: str, authorization: str | None = Header(None)):
 
 
 @router.get("/orders/{order_id}/receipt")
-def order_receipt(order_id: str, authorization: str | None = Header(None)):
+def order_receipt(order_id: str, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     """Comprobante de pago — emitido por SINAPSIS INNOVADORA S.A.C.
 
     IMPORTANTE: Emisión MANUAL. No se envía automáticamente a SUNAT.
     Para facturación electrónica oficial, configure SUNAT_PSE_API_KEY + PSE.
     """
     username = require_api_key(authorization)
-    db = get_db()
-    try:
-        order, items = _fetch_order_with_items(db, order_id, username)
-    finally:
-        db.close()
+    order, items = _fetch_order_with_items(db, order_id, username)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     company = get_company()

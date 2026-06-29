@@ -12,7 +12,7 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends, Header
 
 from market_core import STORES, TIERS, get_default_stores, db_get_subscription, get_db, price_to_usd
 from market_basket import build_canasta_basica
@@ -26,7 +26,7 @@ from data_v1_service import count_flagged_outliers
 from dashboard_render import render_dashboard_html
 from dashboard_semantic import apply_semantic_moat_blocks
 from dashboard_view_model import build_dashboard_view_model
-from server_deps import require_admin, require_api_key, require_user
+from server_deps import get_db_dep, require_admin, require_api_key, require_user
 
 from .health import _age_hours, derive_collector_status
 
@@ -231,7 +231,7 @@ def dashboard_data():
 
 
 @router.post("/dashboard/collector/trigger")
-def collector_trigger(authorization: str | None = Header(None)):
+def collector_trigger(authorization: str | None = Header(None), db = Depends(get_db_dep)):
     """Signal the collector daemon to run a cycle as soon as possible.
 
     Requires MARKET_API_TOKEN via Authorization: Bearer <token>.
@@ -239,7 +239,6 @@ def collector_trigger(authorization: str | None = Header(None)):
     Idempotent: duplicate triggers while one is pending are no-ops.
     """
     require_admin(authorization)
-    db = get_db()
     # Check if there's already a pending (unfulfilled) trigger
     existing = db.execute(
         "SELECT id FROM collector_triggers WHERE fulfilled_at IS NULL ORDER BY id DESC LIMIT 1"
@@ -980,13 +979,12 @@ def _static_dashboard() -> str:
 
 
 @router.get("/dashboard/usage")
-def dashboard_usage(authorization: str | None = Header(None)):
+def dashboard_usage(authorization: str | None = Header(None), db = Depends(get_db_dep)):
     """Per-user usage view."""
     username = require_api_key(authorization)
     sub = db_get_subscription(username)
     tier = sub.get("tier", "free")
     limits = TIERS.get(tier, TIERS["free"])
-    db = get_db()
     import time as _time
     today_start = _time.mktime(_time.strptime(
         _time.strftime("%Y-%m-%d", _time.gmtime()), "%Y-%m-%d"
@@ -1001,7 +999,6 @@ def dashboard_usage(authorization: str | None = Header(None)):
     keys = db.execute(
         "SELECT COUNT(*) as n FROM api_keys WHERE username=?", (username,)
     ).fetchone()["n"]
-    db.close()
     return {
         "username": username,
         "tier": tier,

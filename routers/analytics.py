@@ -10,11 +10,11 @@ Endpoints:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends, Header
 
-from market_core import STORES, get_db
+from market_core import STORES
 from market_indicators import get_indicator_catalog, get_latest_values
-from server_deps import require_api_key
+from server_deps import get_db_dep, require_api_key
 from index_gate import enrich_list
 
 router = APIRouter(tags=["analytics"])
@@ -27,9 +27,9 @@ def price_history(
     line: str | None = None,
     limit: int = 50,
     authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
 ):
     require_api_key(authorization)
-    db = get_db()
     q = "SELECT * FROM price_snapshots WHERE 1=1"
     params: list = []
     if product_id:
@@ -43,30 +43,23 @@ def price_history(
         params.append(line)
     q += " ORDER BY queried_at DESC LIMIT ?"
     params.append(limit)
-    try:
-        rows = db.execute(q, params).fetchall()
-    finally:
-        db.close()
+    rows = db.execute(q, params).fetchall()
     snapshots = [dict(r) for r in rows]
     enrich_list(snapshots)
     return {"count": len(snapshots), "snapshots": snapshots}
 
 
 @router.get("/analytics/stats")
-def analytics_stats(authorization: str | None = Header(None)):
+def analytics_stats(authorization: str | None = Header(None), db = Depends(get_db_dep)):
     require_api_key(authorization)
-    db = get_db()
-    try:
-        snap = db.execute(
-            """SELECT COUNT(*) AS total_snapshots,
-                      COUNT(DISTINCT store) AS stores_tracked,
-                      COUNT(DISTINCT product_id) AS products_tracked,
-                      MAX(queried_at) AS latest
-               FROM price_snapshots"""
-        ).fetchone()
-        total_queries = db.execute("SELECT COUNT(*) as n FROM search_queries").fetchone()["n"]
-    finally:
-        db.close()
+    snap = db.execute(
+        """SELECT COUNT(*) AS total_snapshots,
+                  COUNT(DISTINCT store) AS stores_tracked,
+                  COUNT(DISTINCT product_id) AS products_tracked,
+                  MAX(queried_at) AS latest
+           FROM price_snapshots"""
+    ).fetchone()
+    total_queries = db.execute("SELECT COUNT(*) as n FROM search_queries").fetchone()["n"]
     return {
         "total_price_snapshots": snap["total_snapshots"],
         "total_search_queries": total_queries,
@@ -77,12 +70,11 @@ def analytics_stats(authorization: str | None = Header(None)):
 
 
 @router.get("/analytics/trending")
-def analytics_trending(country: str | None = None, line: str | None = None, limit: int = 10, authorization: str | None = Header(None)):
+def analytics_trending(country: str | None = None, line: str | None = None, limit: int = 10, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     require_api_key(authorization)
     """Recent products from the data moat. NOTE: this is a placeholder —
     'trending' currently just means 'most recent', not 'biggest price move'.
     See follow-up tickets for a real trend calculation."""
-    db = get_db()
     q = (
         "SELECT name, store_name, price, currency, line_name, queried_at "
         "FROM price_snapshots WHERE price > 0"
@@ -94,7 +86,6 @@ def analytics_trending(country: str | None = None, line: str | None = None, limi
             if sv.get("country", "").upper() == country.upper()
         ]
         if not country_stores:
-            db.close()
             return {"trending": [], "total": 0, "filter": {"country": country}}
         placeholders = ",".join("?" * len(country_stores))
         q += f" AND store IN ({placeholders})"
@@ -104,20 +95,16 @@ def analytics_trending(country: str | None = None, line: str | None = None, limi
         params.append(line)
     q += " ORDER BY queried_at DESC LIMIT ?"
     params.append(limit * 2)
-    try:
-        rows = db.execute(q, params).fetchall()
-    finally:
-        db.close()
+    rows = db.execute(q, params).fetchall()
     trending = [dict(r) for r in rows]
     enrich_list(trending)
     return {"trending": trending, "total": len(trending)}
 
 
 @router.get("/analytics/brands")
-def analytics_brands(line: str | None = None, country: str | None = None, limit: int = 20, authorization: str | None = Header(None)):
+def analytics_brands(line: str | None = None, country: str | None = None, limit: int = 20, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     require_api_key(authorization)
     """Top brands in the data moat by snapshot count."""
-    db = get_db()
     q = "SELECT brand, COUNT(*) as count FROM price_snapshots WHERE brand != '' AND price > 0"
     params: list = []
     if line:
@@ -125,10 +112,7 @@ def analytics_brands(line: str | None = None, country: str | None = None, limit:
         params.append(line)
     q += " GROUP BY brand ORDER BY count DESC LIMIT ?"
     params.append(limit)
-    try:
-        rows = db.execute(q, params).fetchall()
-    finally:
-        db.close()
+    rows = db.execute(q, params).fetchall()
     return {"brands": [dict(r) for r in rows], "total": len(rows)}
 
 
@@ -138,14 +122,11 @@ def analytics_indicators(
     line: str | None = None,
     limit: int = 50,
     authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
 ):
     require_api_key(authorization)
     """Latest indicator values from the data moat (internal + public API sources)."""
-    db = get_db()
-    try:
-        values = get_latest_values(db, country=country, line=line, limit=limit)
-    finally:
-        db.close()
+    values = get_latest_values(db, country=country, line=line, limit=limit)
     return {
         "count": len(values),
         "catalog_size": len(get_indicator_catalog()),

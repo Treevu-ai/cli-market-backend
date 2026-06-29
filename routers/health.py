@@ -17,10 +17,10 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from market_core import STORES, LINES, COUNTRIES, get_db
-from server_deps import check_rate_limit
+from server_deps import check_rate_limit, get_db_dep
 from source_health import build_sources_health
 
 # Cache pg_error probe so /health/db never blocks longer than _PG_PROBE_TTL seconds
@@ -99,7 +99,7 @@ def health():
 
 
 @router.get("/health/db")
-def health_db():
+def health_db(db = Depends(get_db_dep)):
     """Database backend diagnostic — confirms PG vs SQLite."""
     global _pg_probe_cache
     import market_core
@@ -124,7 +124,6 @@ def health_db():
                 _pg_probe_cache = (now, str(e)[:200])
         pg_error = _pg_probe_cache[1] if _pg_probe_cache else None
 
-    db = get_db()
     try:
         db_type = "postgresql" if USE_PG else "sqlite"
         # Fast approximate row count — O(log n) for SQLite (MAX(rowid)), and
@@ -179,36 +178,27 @@ def health_db():
         }
     except Exception as e:
         return {"backend": "error", "detail": str(e)}
-    finally:
-        try:
-            db.close()
-        except Exception:
-            pass
 
 
 @router.get("/health/collector")
-def health_collector():
+def health_collector(db = Depends(get_db_dep)):
     """Collector health: last run, staleness, store coverage."""
     try:
-        db = get_db()
         try:
-            try:
-                last = db.execute(
-                    "SELECT started_at, finished_at, stores_attempted, stores_succeeded, "
-                    "prices_collected, stores_with_yield "
-                    "FROM collector_runs ORDER BY id DESC LIMIT 1"
-                ).fetchone()
-            except Exception:
-                last = db.execute(
-                    "SELECT started_at, finished_at, stores_attempted, stores_succeeded, prices_collected "
-                    "FROM collector_runs ORDER BY id DESC LIMIT 1"
-                ).fetchone()
-            total_runs = db.execute("SELECT COUNT(*) as n FROM collector_runs").fetchone()["n"]
-            active_stores = db.execute(
-                "SELECT COUNT(DISTINCT store) as n FROM price_snapshots WHERE price > 0"
-            ).fetchone()["n"]
-        finally:
-            db.close()
+            last = db.execute(
+                "SELECT started_at, finished_at, stores_attempted, stores_succeeded, "
+                "prices_collected, stores_with_yield "
+                "FROM collector_runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        except Exception:
+            last = db.execute(
+                "SELECT started_at, finished_at, stores_attempted, stores_succeeded, prices_collected "
+                "FROM collector_runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        total_runs = db.execute("SELECT COUNT(*) as n FROM collector_runs").fetchone()["n"]
+        active_stores = db.execute(
+            "SELECT COUNT(DISTINCT store) as n FROM price_snapshots WHERE price > 0"
+        ).fetchone()["n"]
     except Exception:
         return {"status": "unknown", "error": "Database not initialized"}
 
@@ -259,17 +249,14 @@ def commerce_capabilities():
 def sources_health(
     store: str | None = None,
     catalog_only: bool = True,
+    db = Depends(get_db_dep),
 ):
     """Per-store scraping health: success rate, failures, and snapshot freshness."""
-    db = get_db()
-    try:
-        return build_sources_health(db, catalog_only=catalog_only, store=store)
-    finally:
-        db.close()
+    return build_sources_health(db, catalog_only=catalog_only, store=store)
 
 
 @router.get("/health/stores")
-def health_stores(country: str | None = None):
+def health_stores(country: str | None = None, db = Depends(get_db_dep)):
     """Per-store freshness dashboard — ops view of collector coverage.
 
     For each store in the catalog returns:
@@ -283,40 +270,36 @@ def health_stores(country: str | None = None):
     """
     from datetime import timezone as _tz
 
-    db = get_db()
+    # Last snapshot per store
+    last_seen_rows = db.execute(
+        "SELECT store, MAX(queried_at) as last_seen, COUNT(*) as total "
+        "FROM price_snapshots WHERE price > 0 GROUP BY store"
+    ).fetchall()
+    last_seen: dict[str, tuple[str | None, int]] = {
+        r["store"]: (r["last_seen"], int(r["total"] or 0))
+        for r in last_seen_rows
+    }
+
+    # Snapshots in last 7 days per store
+    cutoff = (datetime.now(_tz.utc).replace(tzinfo=None) - __import__("datetime").timedelta(days=7)).isoformat()
+    snap7_rows = db.execute(
+        "SELECT store, COUNT(*) as n FROM price_snapshots "
+        "WHERE price > 0 AND queried_at >= ? GROUP BY store",
+        (cutoff,),
+    ).fetchall()
+    snap7: dict[str, int] = {r["store"]: int(r["n"] or 0) for r in snap7_rows}
+
+    # Consecutive failures from store_health
     try:
-        # Last snapshot per store
-        last_seen_rows = db.execute(
-            "SELECT store, MAX(queried_at) as last_seen, COUNT(*) as total "
-            "FROM price_snapshots WHERE price > 0 GROUP BY store"
+        failures_rows = db.execute(
+            "SELECT store, consecutive_failures, last_error FROM store_health"
         ).fetchall()
-        last_seen: dict[str, tuple[str | None, int]] = {
-            r["store"]: (r["last_seen"], int(r["total"] or 0))
-            for r in last_seen_rows
+        failures: dict[str, dict] = {
+            r["store"]: {"consecutive_failures": int(r["consecutive_failures"] or 0), "last_error": r["last_error"]}
+            for r in failures_rows
         }
-
-        # Snapshots in last 7 days per store
-        cutoff = (datetime.now(_tz.utc).replace(tzinfo=None) - __import__("datetime").timedelta(days=7)).isoformat()
-        snap7_rows = db.execute(
-            "SELECT store, COUNT(*) as n FROM price_snapshots "
-            "WHERE price > 0 AND queried_at >= ? GROUP BY store",
-            (cutoff,),
-        ).fetchall()
-        snap7: dict[str, int] = {r["store"]: int(r["n"] or 0) for r in snap7_rows}
-
-        # Consecutive failures from store_health
-        try:
-            failures_rows = db.execute(
-                "SELECT store, consecutive_failures, last_error FROM store_health"
-            ).fetchall()
-            failures: dict[str, dict] = {
-                r["store"]: {"consecutive_failures": int(r["consecutive_failures"] or 0), "last_error": r["last_error"]}
-                for r in failures_rows
-            }
-        except Exception:
-            failures = {}
-    finally:
-        db.close()
+    except Exception:
+        failures = {}
 
     stores_out: list[dict] = []
     for store_id, meta in STORES.items():
@@ -372,7 +355,7 @@ def health_stores(country: str | None = None):
 
 
 @router.get("/health/stats")
-def health_stats():
+def health_stats(db = Depends(get_db_dep)):
     """Live KPIs for landing and ops — moat freshness, linkage %, scraping summary."""
     from market_core.health_stats import build_health_stats
 
@@ -384,11 +367,7 @@ def health_stats():
     except Exception:
         pass
 
-    db = get_db()
-    try:
-        return build_health_stats(db, registry_size=registry_size)
-    finally:
-        db.close()
+    return build_health_stats(db, registry_size=registry_size)
 
 
 @router.get("/")
