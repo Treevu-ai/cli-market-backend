@@ -9,6 +9,10 @@ Steps:
   1. GET /v1/intel/affordability?country=PE  → ok + score 0–100 + band
   2. POST /v1/missions/optimize-purchase     → ok + recommendation + action_links
   3. GET /v1/household                       → 200 (may be empty if not set)
+  4. PUT /v1/household + GET /v1/household/summary → suggested_action present
+  5. GET /v1/receipts?limit=5               → receipts list
+  6. GET /stores?country=PE                 → retailers list by line (Oleada 3)
+  7. GET /v1/intel/inflation?country=PE     → avg_inflation_pct + top mover (Oleada 3)
 """
 from __future__ import annotations
 
@@ -155,6 +159,39 @@ def main() -> int:
     else:
         print(json.dumps(data, indent=2))
         failures.append("receipts-list")
+
+    # ── Step 6: ecosystem radar (stores by country) ───────────────────────────
+    status, data = req("GET", f"/stores?country={country}")
+    body = data.get("data") or data
+    stores = body.get("stores") or {}
+    ok = status == 200 and len(stores) > 0
+    print(f"\nGET /stores?country={country} -> {status}")
+    if ok:
+        lines: dict[str, int] = {}
+        for s in stores.values():
+            lines[s.get("line", "other")] = lines.get(s.get("line", "other"), 0) + 1
+        print(f"  total: {len(stores)} stores")
+        for ln, cnt in sorted(lines.items()):
+            print(f"    {ln}: {cnt}")
+    else:
+        print(json.dumps(data, indent=2))
+        failures.append("stores-list")
+
+    # ── Step 7: inflation pulse ───────────────────────────────────────────────
+    status, data = req("GET", f"/v1/intel/inflation?country={country}&days=30&limit=8", api_key=key)
+    body = data.get("data") or data
+    ok = status == 200 and "avg_inflation_pct" in body
+    print(f"\nGET /v1/intel/inflation?country={country} -> {status}")
+    if ok:
+        print(f"  products_tracked  : {body.get('products_tracked', 0)}")
+        print(f"  avg_inflation_pct : {body.get('avg_inflation_pct', 0):.1f}%")
+        items = body.get("items") or []
+        if items:
+            top = items[0]
+            print(f"  top mover: {top.get('product')} {top.get('delta_pct'):+.1f}% @ {top.get('store')}")
+    else:
+        print(json.dumps(data, indent=2))
+        failures.append("inflation-pulse")
 
     # ── Report ────────────────────────────────────────────────────────────────
     if failures:
