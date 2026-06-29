@@ -10,11 +10,13 @@ Usage in claude.ai (Add MCP server):
   URL: https://cli-market-production.up.railway.app/mcp?token=<your-market-api-token>
   (claude.ai connectors don't support Bearer auth — use the token query param instead)
 
-Tool tiers:
-  Free  — search, compare, stores, trending, inflation, scores, intel_brief,
-           intel_pulse, forecast, arbitrage, whoami, stats, barcode, discover
-  Pro   — basket, basket_stress, price_risk, favorites, price_alerts,
-           export, ask, add, cart, cart_update, checkout, orders
+Tool tiers (default profile, 32 tools):
+  Free  — search, compare, trending, discover, barcode, inflation, inflation_report,
+           scores, intel_brief, stats, whoami, subscription, preferences,
+           household_get, affordability, substitutes, login
+  Pro   — basket, optimize_purchase, price_risk, procurement_signal, favorites,
+           price_alerts, export, ask, add, cart, cart_update, checkout, orders,
+           household_update, ticket
            (returns upgrade prompt if tier is free)
 """
 
@@ -24,6 +26,7 @@ import httpx
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 
+from market_core.market_mcp_registry import list_tools as _registry_list_tools
 from market_funnel import record_funnel_event
 from market_stats import MCP_TOOLS, PACKAGE_VERSION, RETAILERS_VERIFIED
 from server_deps import require_api_key
@@ -35,6 +38,7 @@ _MCP_VERSION = "2025-03-26"
 
 _PRO_TOOLS = frozenset({
     "market_basket",
+    "market_optimize_purchase",
     "market_procurement_signal",
     "market_price_risk",
     "market_favorites",
@@ -46,6 +50,8 @@ _PRO_TOOLS = frozenset({
     "market_cart_update",
     "market_checkout",
     "market_orders",
+    "market_household_update",
+    "market_ticket",
 })
 
 _UPGRADE_MSG = (
@@ -92,343 +98,14 @@ def _log_mcp_event(event: str, token: str | None, meta: dict) -> None:
         pass
 
 
-# ── Tool definitions ──────────────────────────────────────────────────────────
+# ── Tool definitions (sourced from market_core registry, default profile) ─────
 
-_TOOLS = [
-    # ── Free ─────────────────────────────────────────────────────────────────
-    {
-        "name": "market_search",
-        "description": (
-            f"Search products across {RETAILERS_VERIFIED} LATAM retailers. "
-            "Returns prices, brands, stores, and normalized unit prices (price_per_kg/L). "
-            "Countries: PE, AR, BR, MX, CO, CL, IT, FR."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "required": ["query"],
-            "properties": {
-                "query": {"type": "string", "description": "Product name, e.g. 'arroz', 'leche entera'"},
-                "country": {"type": "string", "description": "ISO country code: PE, AR, BR, MX, CO, CL"},
-                "store": {"type": "string", "description": "Store key, e.g. 'wong_pe', 'carrefour_ar'"},
-                "limit": {"type": "integer", "default": 20},
-            },
-        },
-    },
-    {
-        "name": "market_compare",
-        "description": (
-            "Compare prices for a product across all retailers in a country. "
-            "Returns price spread %, cheapest and most expensive stores, unit price."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "required": ["query"],
-            "properties": {
-                "query": {"type": "string"},
-                "country": {"type": "string"},
-                "limit": {"type": "integer", "default": 10},
-            },
-        },
-    },
-    {
-        "name": "market_stores",
-        "description": f"List {RETAILERS_VERIFIED} indexed LATAM retailers. Filter by country.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "country": {"type": "string", "description": "ISO country code (optional)"},
-            },
-        },
-    },
-    {
-        "name": "market_trending",
-        "description": "Most searched and purchased products in the last 7 days for a country.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "country": {"type": "string"},
-                "limit": {"type": "integer", "default": 10},
-            },
-        },
-    },
-    {
-        "name": "market_discover",
-        "description": "Discover featured and recommended products for a country.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "country": {"type": "string"},
-                "limit": {"type": "integer", "default": 10},
-            },
-        },
-    },
-    {
-        "name": "market_barcode",
-        "description": "Look up a product by barcode / EAN / UPC.",
-        "inputSchema": {
-            "type": "object",
-            "required": ["code"],
-            "properties": {
-                "code": {"type": "string", "description": "Barcode (EAN-13, UPC-A, etc.)"},
-            },
-        },
-    },
-    {
-        "name": "market_inflation",
-        "description": (
-            "Per-product price delta over the last N days for a LATAM country. "
-            "Returns avg inflation %, top movers, basket stress signals."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "required": ["country"],
-            "properties": {
-                "country": {"type": "string", "description": "ISO country code: PE, AR, BR, MX, CO, CL"},
-                "days": {"type": "integer", "default": 30},
-                "limit": {"type": "integer", "default": 20},
-            },
-        },
-    },
-    {
-        "name": "market_scores",
-        "description": (
-            "Market intelligence scores for a LATAM country (0-100). "
-            "Includes retail aggression, labor stress, logistics risk, macro alignment."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "required": ["country"],
-            "properties": {
-                "country": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "market_intel_brief",
-        "description": (
-            "Aggregated market intelligence brief: composite scores, basket stress, "
-            "enrichment indicators (Open Food Facts, Wikimedia, weather, World Bank), "
-            "and per-subcategory price/demand signals — all in one call."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "country": {"type": "string", "description": "ISO country code: PE, AR, BR, MX, CO, CL"},
-                "line": {"type": "string"},
-                "days": {"type": "integer", "default": 7},
-                "include_catalog": {"type": "boolean", "default": False},
-            },
-        },
-    },
-    {
-        "name": "market_intel_pulse",
-        "description": (
-            "Agentic Commerce Pulse — weekly BBVA-style research report with executive "
-            "highlights, Nielsen KPIs (PVI, BAI, PDI, RCS), and publishable markdown narrative."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "country": {"type": "string", "default": "PE"},
-                "days": {"type": "integer", "default": 7},
-                "lang": {"type": "string", "enum": ["es", "en"], "default": "es"},
-            },
-        },
-    },
-    {
-        "name": "market_forecast",
-        "description": (
-            "Price forecast from price_history with procurement signal: buy_today, wait, or neutral. "
-            "Linear trend over lookback window — use for staple procurement timing."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "required": ["product"],
-            "properties": {
-                "product": {"type": "string", "description": "Product query, e.g. leche, arroz"},
-                "country": {"type": "string", "default": "PE"},
-                "horizon_days": {"type": "integer", "default": 21},
-                "lookback_days": {"type": "integer", "default": 90},
-            },
-        },
-    },
-    {
-        "name": "market_arbitrage",
-        "description": (
-            "Cross-border LatAm arbitrage: cheapest vs priciest country for a product in USD. "
-            "Optional Golden Record via canonical_id. Excludes duties and logistics."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "product": {"type": "string", "description": "Product query, e.g. arroz"},
-                "canonical_id": {"type": "string", "description": "Golden Record prod_* ID"},
-                "countries": {
-                    "type": "string",
-                    "description": "Comma-separated ISO codes, e.g. PE,MX,CL",
-                },
-                "min_spread_pct": {"type": "number", "default": 10.0},
-            },
-        },
-    },
-    {
-        "name": "market_stats",
-        "description": "Platform stats: total products indexed, stores active, data freshness, moat health.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "market_whoami",
-        "description": "Return the authenticated user's username and subscription tier.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    # ── Pro ──────────────────────────────────────────────────────────────────
-    {
-        "name": "market_basket",
-        "description": (
-            "[Pro] Compare a basket of items across stores in a country. "
-            "Returns total cost per store, cheapest combination, savings vs most expensive."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "required": ["items", "country"],
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "description": "List of {name, quantity} objects",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string"},
-                            "quantity": {"type": "number", "default": 1},
-                        },
-                    },
-                },
-                "country": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "market_procurement_signal",
-        "description": "[Pro] Basket stress index for a country — affordability signal for procurement decisions.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "country": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "market_price_risk",
-        "description": "[Pro] Price alerts: products with delta above threshold in the last 30 days.",
-        "inputSchema": {
-            "type": "object",
-            "required": ["product"],
-            "properties": {
-                "product": {"type": "string"},
-                "store": {"type": "string"},
-                "threshold_pct": {"type": "number", "default": 5.0},
-                "limit": {"type": "integer", "default": 10},
-            },
-        },
-    },
-    {
-        "name": "market_favorites",
-        "description": "[Pro] List, add, or remove products from the user's favorites.",
-        "inputSchema": {
-            "type": "object",
-            "required": ["action"],
-            "properties": {
-                "action": {"type": "string", "enum": ["list", "add", "remove"]},
-                "product_id": {"type": "string", "description": "Required for add/remove"},
-                "name": {"type": "string"},
-                "store": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "market_price_alerts",
-        "description": "[Pro] List active price alerts for the user.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "market_export",
-        "description": "[Pro] Export price snapshot data as JSON or CSV.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "country": {"type": "string"},
-                "line": {"type": "string"},
-                "format": {"type": "string", "enum": ["json", "csv"], "default": "json"},
-                "limit": {"type": "integer", "default": 500},
-            },
-        },
-    },
-    {
-        "name": "market_ask",
-        "description": "[Pro] Ask a natural-language question about prices, stores, or market conditions.",
-        "inputSchema": {
-            "type": "object",
-            "required": ["prompt"],
-            "properties": {
-                "prompt": {"type": "string"},
-                "country": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "market_add",
-        "description": "[Pro] Add a product to the shopping cart.",
-        "inputSchema": {
-            "type": "object",
-            "required": ["product_id", "store"],
-            "properties": {
-                "product_id": {"type": "string"},
-                "name": {"type": "string"},
-                "price": {"type": "number"},
-                "store": {"type": "string"},
-                "quantity": {"type": "integer", "default": 1},
-                "url": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "market_cart",
-        "description": "[Pro] View current shopping cart contents and totals.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "market_cart_update",
-        "description": "[Pro] Update quantity of an item in the cart.",
-        "inputSchema": {
-            "type": "object",
-            "required": ["product_id", "quantity"],
-            "properties": {
-                "product_id": {"type": "string"},
-                "quantity": {"type": "integer"},
-            },
-        },
-    },
-    {
-        "name": "market_checkout",
-        "description": "[Pro] Initiate checkout for the current cart. Returns payment URL.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "payment_method": {"type": "string", "enum": ["yape", "paypal", "plin", "mercadopago"], "default": "yape"},
-            },
-        },
-    },
-    {
-        "name": "market_orders",
-        "description": "[Pro] List past orders for the authenticated user.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "default": 10},
-            },
-        },
-    },
-]
+# list_tools() returns [{name, description, inputSchema}, ...] for the profile.
+# Using the registry as single source of truth avoids drift when new tools are
+# published to cli-market-core without a matching mcp_http update.
+_TOOLS: list[dict] = _registry_list_tools("default")
+
+
 
 
 # ── Tool execution ────────────────────────────────────────────────────────────
@@ -501,6 +178,28 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
             r = await client.post(f"{_API_BASE}/checkout", json=args, headers=headers)
         elif name == "market_orders":
             r = await client.get(f"{_API_BASE}/orders", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        # ── New tools (registry default profile, added 2026-06-29) ───────────
+        elif name == "market_subscription":
+            r = await client.get(f"{_API_BASE}/auth/subscription", headers=headers)
+        elif name == "market_preferences":
+            r = await client.get(f"{_API_BASE}/agent/preferences", headers=headers)
+        elif name == "market_household_get":
+            r = await client.get(f"{_API_BASE}/v1/household", headers=headers)
+        elif name == "market_household_update":
+            method = "patch" if args.get("patch") else "put"
+            r = await getattr(client, method)(f"{_API_BASE}/v1/household", json=args.get("payload", args), headers=headers)
+        elif name == "market_ticket":
+            r = await client.post(f"{_API_BASE}/v1/receipts/submit", json=args, headers=headers)
+        elif name == "market_affordability":
+            r = await client.get(f"{_API_BASE}/v1/intel/affordability", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_inflation_report":
+            r = await client.get(f"{_API_BASE}/v1/intel/inflation-report", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_login":
+            r = await client.post(f"{_API_BASE}/auth/login", json=args, headers=headers)
+        elif name == "market_substitutes":
+            r = await client.get(f"{_API_BASE}/v1/products/substitutes", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_optimize_purchase":
+            r = await client.post(f"{_API_BASE}/v1/missions/optimize-purchase", json=args, headers=headers)
         else:
             return {"error": f"Unknown tool: {name}"}
 
