@@ -54,22 +54,23 @@ def price_history(
 def analytics_stats(authorization: str | None = Header(None)):
     require_api_key(authorization)
     db = get_db()
-    total_snapshots = db.execute("SELECT COUNT(*) as n FROM price_snapshots").fetchone()["n"]
-    total_queries = db.execute("SELECT COUNT(*) as n FROM search_queries").fetchone()["n"]
-    stores_tracked = db.execute(
-        "SELECT COUNT(DISTINCT store) as n FROM price_snapshots"
-    ).fetchone()["n"]
-    products_tracked = db.execute(
-        "SELECT COUNT(DISTINCT product_id) as n FROM price_snapshots"
-    ).fetchone()["n"]
-    latest = db.execute("SELECT MAX(queried_at) as t FROM price_snapshots").fetchone()["t"]
-    db.close()
+    try:
+        snap = db.execute(
+            """SELECT COUNT(*) AS total_snapshots,
+                      COUNT(DISTINCT store) AS stores_tracked,
+                      COUNT(DISTINCT product_id) AS products_tracked,
+                      MAX(queried_at) AS latest
+               FROM price_snapshots"""
+        ).fetchone()
+        total_queries = db.execute("SELECT COUNT(*) as n FROM search_queries").fetchone()["n"]
+    finally:
+        db.close()
     return {
-        "total_price_snapshots": total_snapshots,
+        "total_price_snapshots": snap["total_snapshots"],
         "total_search_queries": total_queries,
-        "unique_stores_tracked": stores_tracked,
-        "unique_products_tracked": products_tracked,
-        "latest_snapshot_at": latest,
+        "unique_stores_tracked": snap["stores_tracked"],
+        "unique_products_tracked": snap["products_tracked"],
+        "latest_snapshot_at": snap["latest"],
     }
 
 

@@ -325,22 +325,9 @@ def _dashboard_data():
         """
     ).fetchall()
 
-    # ── By country ───────────────────────────────────────────────────────────
-    by_country_raw = db.execute(
-        "SELECT store, COUNT(*) as count FROM price_snapshots WHERE price > 0 GROUP BY store"
-    ).fetchall()
-
-    country_agg: dict[str, dict] = {}
-    for r in by_country_raw:
-        country = STORES.get(r["store"], {}).get("country", "??")
-        c = country_agg.setdefault(country, {"country": country, "count": 0, "stores": set()})
-        c["count"] += r["count"]
-        c["stores"].add(r["store"])
-    by_country = sorted(
-        [{"country": c["country"], "count": c["count"], "stores": len(c["stores"])}
-         for c in country_agg.values()],
-        key=lambda x: x["count"], reverse=True,
-    )
+    # ── By country — deferred: derived from store_window_rows after it loads ──
+    # (placeholder; computed after store_window_rows block below)
+    by_country: list[dict] = []
 
     # ── Dispersión por subcategoría + moneda (+ precio unitario cuando aplica) ─
     spread_rows = db.execute(
@@ -358,14 +345,9 @@ def _dashboard_data():
         d["avg_price_usd"] = price_to_usd(d.get("avg_price", 0), d.get("currency", ""))
 
     # ── By line + currency: Python-side percentiles (P25/P50/P75) ─────────────
-    price_rows = db.execute(
-        """SELECT line, line_name, currency, price, product_id, store
-           FROM price_snapshots WHERE price > 0 AND price < 999999
-           ORDER BY line, currency"""
-    ).fetchall()
-
+    # Derived from spread_rows (already loaded) — no extra query.
     groups: dict[tuple[str, str], dict] = {}
-    for r in price_rows:
+    for r in spread_rows:
         key = (r["line"], r["currency"])
         if key not in groups:
             groups[key] = {
@@ -408,20 +390,20 @@ def _dashboard_data():
         })
 
     # ── Normalized unit audit: per-category sample + non-normalizable counts ──
+    # Derived from spread_rows — no extra query.
     from market_units import parse_pack_size
-
-    unit_names_rows = db.execute(
-        """SELECT line, currency, name FROM price_snapshots
-           WHERE price > 0 AND price < 999999
-           GROUP BY line, currency, name"""
-    ).fetchall()
 
     group_names: dict[tuple[str, str], list[str]] = {}
     all_distinct: set[str] = set()
-    for r in unit_names_rows:
-        key = (r["line"], r["currency"])
-        group_names.setdefault(key, []).append(r["name"])
-        all_distinct.add(r["name"])
+    seen_name_keys: set[tuple[str, str, str]] = set()
+    for r in spread_rows:
+        triple = (r["line"], r["currency"], r["name"])
+        if triple not in seen_name_keys:
+            seen_name_keys.add(triple)
+            key = (r["line"], r["currency"])
+            group_names.setdefault(key, []).append(r["name"])
+            all_distinct.add(r["name"])
+    del seen_name_keys
 
     parseable_total = sum(1 for n in all_distinct if parse_pack_size(n))
     non_normalizable_names = len(all_distinct) - parseable_total
@@ -450,37 +432,27 @@ def _dashboard_data():
         row["normalized_unit"] = info["normalized_unit"]
 
     # ── Top discounts (public: sane retail range only) ───────────────────────
-    top_discounts = db.execute(
+    # One scan for both discount bands; Python splits into top/suspect.
+    all_discount_rows = db.execute(
         """
-        SELECT name, store, store_name, price, list_price, discount_pct, currency, line_name
-        FROM (
-            SELECT name, store, store_name, price, list_price,
-                   ROUND(((1 - price / NULLIF(list_price,0)) * 100)::numeric) as discount_pct,
-                   currency, line_name
-            FROM price_snapshots
-            WHERE list_price > price AND price > 0 AND list_price < 999999
-              AND SUBSTR(store, LENGTH(store) - 2) != '_br'
-        ) discounted
-        WHERE discount_pct BETWEEN 5 AND 80
-        ORDER BY discount_pct DESC LIMIT 10
+        SELECT name, store, store_name, price, list_price,
+               ROUND(((1 - price / NULLIF(list_price,0)) * 100)) AS discount_pct,
+               currency, line_name
+        FROM price_snapshots
+        WHERE list_price > price AND price > 0 AND list_price < 999999
+          AND ROUND(((1 - price / NULLIF(list_price,0)) * 100)) BETWEEN 5 AND 99
+        ORDER BY discount_pct DESC
+        LIMIT 200
         """
     ).fetchall()
 
-    suspect_discounts = db.execute(
-        """
-        SELECT name, store_name, price, list_price, discount_pct, currency, line_name, confidence
-        FROM (
-            SELECT name, store_name, price, list_price,
-                   ROUND(((1 - price / NULLIF(list_price,0)) * 100)::numeric) as discount_pct,
-                   currency, line_name,
-                   'suspect' as confidence
-            FROM price_snapshots
-            WHERE list_price > price AND price > 0 AND list_price < 999999
-        ) discounted
-        WHERE discount_pct >= 90
-        ORDER BY discount_pct DESC LIMIT 20
-        """
-    ).fetchall()
+    top_discounts_raw = [r for r in all_discount_rows
+                         if r["store"] and not r["store"].endswith("_br")
+                         and 5 <= (r["discount_pct"] or 0) <= 80][:10]
+    top_discounts = top_discounts_raw
+
+    suspect_discounts_raw = [r for r in all_discount_rows if (r["discount_pct"] or 0) >= 90][:20]
+    suspect_discounts = [dict(r) | {"confidence": "suspect"} for r in suspect_discounts_raw]
 
     # ── Cheapest store by line ───────────────────────────────────────────────
     cheapest_by_line = db.execute(
@@ -517,29 +489,26 @@ def _dashboard_data():
     now7 = (now - timedelta(days=7)).isoformat()
     now14 = (now - timedelta(days=14)).isoformat()
 
-    recent_prices = db.execute(
-        """SELECT product_id, store, price, queried_at
-           FROM price_snapshots WHERE price > 0 AND queried_at >= ?""",
-        (now7,)
-    ).fetchall()
-
-    older_prices = db.execute(
-        """SELECT product_id, store, price, queried_at
-           FROM price_snapshots WHERE price > 0 AND queried_at >= ? AND queried_at < ?""",
-        (now14, now7)
+    # One scan for both windows; MAX(queried_at) picks latest row per window.
+    trend_rows = db.execute(
+        """SELECT product_id, store,
+                  MAX(price) FILTER (WHERE queried_at >= ?) AS price_recent,
+                  MAX(queried_at) FILTER (WHERE queried_at >= ?) AS ts_recent,
+                  MAX(price) FILTER (WHERE queried_at >= ? AND queried_at < ?) AS price_older
+           FROM price_snapshots WHERE price > 0 AND queried_at >= ?
+           GROUP BY product_id, store""",
+        (now7, now7, now14, now7, now14)
     ).fetchall()
 
     recent_map: dict[tuple, dict] = {}
-    for r in recent_prices:
-        key = (r["product_id"], r["store"])
-        if key not in recent_map or r["queried_at"] > recent_map[key]["queried_at"]:
-            recent_map[key] = dict(r)
-
     older_map: dict[tuple, dict] = {}
-    for r in older_prices:
+    for r in trend_rows:
         key = (r["product_id"], r["store"])
-        if key not in older_map or r["queried_at"] > older_map[key]["queried_at"]:
-            older_map[key] = dict(r)
+        if r["price_recent"] is not None:
+            recent_map[key] = {"product_id": r["product_id"], "store": r["store"],
+                                "price": r["price_recent"], "queried_at": r["ts_recent"]}
+        if r["price_older"] is not None:
+            older_map[key] = {"price": r["price_older"]}
 
     movers: list[dict] = []
     for key, recent in recent_map.items():
@@ -594,14 +563,11 @@ def _dashboard_data():
     inventory_daily.reverse()  # chronological order
 
     # Derived growth stats
-    first_snapshot_row = db.execute(
-        "SELECT MIN(queried_at) as first FROM price_snapshots WHERE price > 0"
+    growth_meta_row = db.execute(
+        "SELECT MIN(queried_at) as first, COUNT(*) as n FROM price_snapshots WHERE price > 0"
     ).fetchone()
-    moat_start = first_snapshot_row["first"] if first_snapshot_row else None
-
-    total_snapshots_all = db.execute(
-        "SELECT COUNT(*) as n FROM price_snapshots WHERE price > 0"
-    ).fetchone()["n"]
+    moat_start = growth_meta_row["first"] if growth_meta_row else None
+    total_snapshots_all = int(growth_meta_row["n"] or 0) if growth_meta_row else 0
 
     daily_last_7d = [d["snapshots"] for d in inventory_daily[-7:]] if len(inventory_daily) >= 7 else []
     avg_daily_7d = round(sum(daily_last_7d) / 7, 1) if daily_last_7d else 0
@@ -614,13 +580,6 @@ def _dashboard_data():
     ).fetchall()
     failing_stores = [r for r in failing_stores if r["store"] in get_default_stores()]
 
-    # ── Freshness ────────────────────────────────────────────────────────────
-    freshness = db.execute(
-        """SELECT store, store_name, MAX(queried_at) as last_seen
-           FROM price_snapshots WHERE price > 0
-           GROUP BY store, store_name ORDER BY last_seen DESC LIMIT 20"""
-    ).fetchall()
-
     # ── Operacional: store health scores (active catalog only) ───────────────
     store_health_all = db.execute(
         """SELECT store, total_requests, total_successes,
@@ -632,20 +591,29 @@ def _dashboard_data():
     healthy_count = sum(1 for h in store_health if float(h.get("success_pct") or 0) >= 80)
 
     # ── Per-store windows: coverage 7d + fresh 24h + active 7d — one pass ──────
+    # Also carries store_name + last_seen so freshness can be derived in Python.
     cutoff_7d = (now - timedelta(days=7)).isoformat()
     store_window_rows = db.execute(
-        f"""SELECT store,
+        f"""SELECT store, store_name,
                   COUNT(*) AS total_snapshots,
                   COUNT(*) FILTER (WHERE queried_at >= ?) AS snapshots_7d,
                   COUNT(*) FILTER (WHERE queried_at >= {cutoff_24h_sql}) AS snapshots_24h,
                   MAX(queried_at) AS last_seen
            FROM price_snapshots WHERE price > 0
-           GROUP BY store""",
+           GROUP BY store, store_name""",
         (cutoff_7d,),
     ).fetchall()
+
+    # ── Freshness — derived from store_window_rows (no extra query) ──────────
+    freshness = sorted(
+        [{"store": r["store"], "store_name": r["store_name"], "last_seen": r["last_seen"]}
+         for r in store_window_rows if r["last_seen"]],
+        key=lambda x: x["last_seen"] or "", reverse=True
+    )[:20]
     store_coverage_map: dict[str, float] = {}
     stores_fresh_24h: set[str] = set()
     stores_active_7d: set[str] = set()
+    _country_agg: dict[str, dict] = {}
     _defaults = get_default_stores()
     for r in store_window_rows:
         sid = r["store"]
@@ -656,6 +624,15 @@ def _dashboard_data():
                 stores_fresh_24h.add(sid)
             if int(r["snapshots_7d"] or 0) > 0:
                 stores_active_7d.add(sid)
+        country = STORES.get(sid, {}).get("country", "??")
+        ca = _country_agg.setdefault(country, {"country": country, "count": 0, "stores": set()})
+        ca["count"] += total
+        ca["stores"].add(sid)
+    by_country = sorted(
+        [{"country": c["country"], "count": c["count"], "stores": len(c["stores"])}
+         for c in _country_agg.values()],
+        key=lambda x: x["count"], reverse=True,
+    )
     for h in store_health:
         h["coverage_7d_pct"] = store_coverage_map.get(h["store"], 0.0)
     coverage_7d_pct = round(len(stores_active_7d) / len(get_default_stores()) * 100, 1) if get_default_stores() else 0
@@ -689,41 +666,33 @@ def _dashboard_data():
            FROM collector_runs ORDER BY id DESC LIMIT 10"""
     ).fetchall()
 
-    # ── Exploratoria: price distribution ─────────────────────────────────────
-    price_dist = db.execute(
-        """SELECT
-             CASE WHEN price<=10 THEN '0-10'
-                  WHEN price<=50 THEN '10-50'
-                  WHEN price<=100 THEN '50-100'
-                  WHEN price<=500 THEN '100-500'
-                  ELSE '500+'
-             END as bucket,
-             COUNT(*) as count
-           FROM price_snapshots WHERE price>0 AND price<999999
-           GROUP BY bucket ORDER BY MIN(price)"""
-    ).fetchall()
-
-    # ── Exploratoria: line-country matrix ────────────────────────────────────
-    line_country_raw = db.execute(
-        """SELECT ps.line, ps.store, COUNT(*) as n
-           FROM price_snapshots ps WHERE ps.price>0
-           GROUP BY ps.line, ps.store"""
-    ).fetchall()
-    line_country_map: dict[str, set] = {}
-    for r in line_country_raw:
+    # ── Exploratoria: price_dist, line_country_matrix, products_per_store ──────
+    # All three derived from spread_rows (already in memory) — no extra queries.
+    _price_buckets: dict[str, int] = {"0-10": 0, "10-50": 0, "50-100": 0, "100-500": 0, "500+": 0}
+    _line_country_map: dict[str, set] = {}
+    _store_products: dict[str, dict] = {}
+    for r in spread_rows:
+        p = float(r["price"])
+        bucket = "0-10" if p <= 10 else "10-50" if p <= 50 else "50-100" if p <= 100 else "100-500" if p <= 500 else "500+"
+        _price_buckets[bucket] += 1
         country = STORES.get(r["store"], {}).get("country", "??")
-        key = f"{r['line']}|{country}"
-        line_country_map.setdefault(key, set()).add(r["store"])
-    line_country_matrix = [{"line": k.split("|")[0], "country": k.split("|")[1], "stores": len(v)}
-                           for k, v in line_country_map.items()]
+        lc_key = f"{r['line']}|{country}"
+        _line_country_map.setdefault(lc_key, set()).add(r["store"])
+        sp = _store_products.setdefault(r["store"], {"store": r["store"], "store_name": r["store_name"], "products": set(), "total": 0})
+        sp["products"].add(r["product_id"])
+        sp["total"] += 1
 
-    # ── Exploratoria: products per store ─────────────────────────────────────
-    products_per_store = db.execute(
-        """SELECT store_name, store, COUNT(DISTINCT product_id) as unique_products,
-                  COUNT(*) as total_snapshots
-           FROM price_snapshots WHERE price>0
-           GROUP BY store, store_name ORDER BY unique_products DESC LIMIT 15"""
-    ).fetchall()
+    price_dist = [{"bucket": b, "count": c} for b, c in _price_buckets.items() if c > 0]
+    line_country_matrix = [
+        {"line": k.split("|")[0], "country": k.split("|")[1], "stores": len(v)}
+        for k, v in _line_country_map.items()
+    ]
+    products_per_store = sorted(
+        [{"store": v["store"], "store_name": v["store_name"],
+          "unique_products": len(v["products"]), "total_snapshots": v["total"]}
+         for v in _store_products.values()],
+        key=lambda x: x["unique_products"], reverse=True
+    )[:15]
 
     # ── Outliers: bidirectional vs group median (not mean) ───────────────────
     spread_products = [dict(r) for r in spread_rows]
@@ -731,51 +700,37 @@ def _dashboard_data():
     for item in outliers:
         item["price_usd"] = price_to_usd(item.get("price", 0), item.get("currency", ""))
 
-    # Enrich outliers with store health state at capture time
-    outlier_stores = list({o["store"] for o in outliers if o.get("store")})
-    if outlier_stores:
-        store_health_lookup = {}
-        for sh in db.execute(
-            """SELECT store, total_requests, total_successes,
-                      CASE WHEN total_requests>0 THEN ROUND((total_successes*100.0/total_requests)::numeric,1)
-                           ELSE 0 END as success_pct,
-                      consecutive_failures
-               FROM store_health WHERE store IN ({})""".format(
-                ",".join("?" * len(outlier_stores))
-            ),
-            outlier_stores,
-        ).fetchall():
-            sid = sh["store"]
-            pct = float(sh["success_pct"] or 0)
-            store_health_lookup[sid] = (
-                "dead" if pct < 30 else ("ok" if pct >= 80 else "partial")
-            )
-        for o in outliers:
-            o["store_health_state"] = store_health_lookup.get(o.get("store", ""), "unknown")
+    # Enrich outliers from already-loaded store_health_all — no extra query.
+    _sh_state_map = {
+        h["store"]: ("dead" if float(h.get("success_pct") or 0) < 30
+                     else "ok" if float(h.get("success_pct") or 0) >= 80 else "partial")
+        for h in store_health_all
+    }
+    for o in outliers:
+        o["store_health_state"] = _sh_state_map.get(o.get("store", ""), "unknown")
 
-    # ── Inflation 7d: per line + currency (nominal + USD-normalized) ────────
+    # ── Inflation 7d: per line + currency — single GROUP BY with FILTER ────────
+    inflation_rows = db.execute(
+        """SELECT line, currency,
+                  AVG(price) FILTER (WHERE queried_at >= ?) AS avg_recent,
+                  AVG(price) FILTER (WHERE queried_at >= ? AND queried_at < ?) AS avg_older
+           FROM price_snapshots
+           WHERE price > 0 AND price < 999999 AND queried_at >= ?
+           GROUP BY line, currency""",
+        (now7, now14, now7, now14),
+    ).fetchall()
+
+    _line_name_map = {(r["line"], r["currency"]): r.get("line_name") for r in by_line_currency}
     inflation = []
-    for row in by_line_currency:
-        recent_avg = db.execute(
-            """SELECT ROUND(AVG(price)::numeric,2) as avg_price
-               FROM price_snapshots
-               WHERE line=? AND currency=? AND price>0 AND price<999999 AND queried_at >= ?""",
-            (row["line"], row["currency"], now7),
-        ).fetchone()
-        older_avg = db.execute(
-            """SELECT ROUND(AVG(price)::numeric,2) as avg_price
-               FROM price_snapshots
-               WHERE line=? AND currency=? AND price>0 AND price<999999
-                 AND queried_at >= ? AND queried_at < ?""",
-            (row["line"], row["currency"], now14, now7),
-        ).fetchone()
-        r_avg = float(recent_avg["avg_price"] or 0) if recent_avg else 0.0
-        o_avg = float(older_avg["avg_price"] or 0) if older_avg else 0.0
+    for r in inflation_rows:
+        r_avg = round(float(r["avg_recent"] or 0), 2)
+        o_avg = round(float(r["avg_older"] or 0), 2)
         delta = round((r_avg - o_avg) / o_avg * 100, 1) if o_avg > 0 else 0
-        cur = row["currency"] or ""
+        cur = r["currency"] or ""
+        line_key = r["line"] or ""
         inflation.append({
-            "line": row["line_name"] or row["line"],
-            "line_key": row["line"],
+            "line": _line_name_map.get((line_key, cur)) or line_key,
+            "line_key": line_key,
             "currency": cur,
             "avg_now": r_avg,
             "avg_before": o_avg,
