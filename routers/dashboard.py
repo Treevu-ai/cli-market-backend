@@ -266,64 +266,40 @@ def _dashboard_data():
     now = datetime.now(timezone.utc)
     cutoff_24h_sql = "datetime('now', '-24 hours')"
 
-    # ── KPIs: moat size vs 24h refresh (distinct metrics) ─────────────────────
-    total_indexed = db.execute(
-        "SELECT COUNT(*) as n FROM price_snapshots WHERE price > 0 AND price < 999999"
-    ).fetchone()["n"]
-
-    unique_products = db.execute(
-        "SELECT COUNT(DISTINCT product_id || store) as n FROM price_snapshots WHERE price > 0"
-    ).fetchone()["n"]
-
-    stores_indexed = db.execute(
-        "SELECT COUNT(DISTINCT store) as n FROM price_snapshots WHERE price > 0"
-    ).fetchone()["n"]
-
-    last_collected_row = db.execute(
-        "SELECT MAX(queried_at) as ts FROM price_snapshots WHERE price > 0"
-    ).fetchone()
-    last_collected_at = last_collected_row["ts"] if last_collected_row else None
-    moat_age_h = _age_hours(last_collected_at) if last_collected_at else None
-
-    snapshots_24h = db.execute(
-        "SELECT COUNT(*) as n FROM price_snapshots WHERE price > 0 AND queried_at >= "
-        + cutoff_24h_sql
-    ).fetchone()["n"]
-
-    active_stores_24h = db.execute(
-        "SELECT COUNT(DISTINCT store) as n FROM price_snapshots WHERE price > 0 AND queried_at >= "
-        + cutoff_24h_sql
-    ).fetchone()["n"]
-
-    total_runs = db.execute("SELECT COUNT(*) as n FROM collector_runs").fetchone()["n"]
-
+    # ── KPIs: single pass over price_snapshots (was 8 separate queries) ────────
     try:
         from price_snapshots_schema import ensure_canonical_product_id_column
-
         ensure_canonical_product_id_column(db)
-        snapshots_linked = db.execute(
-            """
-            SELECT COUNT(*) as n FROM price_snapshots
-            WHERE price > 0 AND canonical_product_id IS NOT NULL AND canonical_product_id != ''
-            """
-        ).fetchone()["n"]
-        golden_records_distinct = db.execute(
-            """
-            SELECT COUNT(DISTINCT canonical_product_id) as n FROM price_snapshots
-            WHERE canonical_product_id IS NOT NULL AND canonical_product_id != ''
-            """
-        ).fetchone()["n"]
-        unlinked_snapshots = db.execute(
-            """
-            SELECT COUNT(*) as n FROM price_snapshots
-            WHERE price > 0
-              AND (canonical_product_id IS NULL OR canonical_product_id = '')
-            """
-        ).fetchone()["n"]
     except Exception:
-        snapshots_linked = 0
-        golden_records_distinct = 0
-        unlinked_snapshots = total_indexed
+        pass
+
+    kpi_row = db.execute(
+        f"""
+        SELECT
+          COUNT(*) FILTER (WHERE price > 0 AND price < 999999) AS total_indexed,
+          COUNT(DISTINCT product_id || store) FILTER (WHERE price > 0) AS unique_products,
+          COUNT(DISTINCT store) FILTER (WHERE price > 0) AS stores_indexed,
+          MAX(queried_at) FILTER (WHERE price > 0) AS last_collected_at,
+          COUNT(*) FILTER (WHERE price > 0 AND queried_at >= {cutoff_24h_sql}) AS snapshots_24h,
+          COUNT(DISTINCT store) FILTER (WHERE price > 0 AND queried_at >= {cutoff_24h_sql}) AS active_stores_24h,
+          COUNT(*) FILTER (WHERE price > 0 AND canonical_product_id IS NOT NULL AND canonical_product_id != '') AS snapshots_linked,
+          COUNT(DISTINCT canonical_product_id) FILTER (WHERE canonical_product_id IS NOT NULL AND canonical_product_id != '') AS golden_records_distinct
+        FROM price_snapshots
+        """
+    ).fetchone()
+
+    total_indexed = int(kpi_row["total_indexed"] or 0)
+    unique_products = int(kpi_row["unique_products"] or 0)
+    stores_indexed = int(kpi_row["stores_indexed"] or 0)
+    last_collected_at = kpi_row["last_collected_at"]
+    moat_age_h = _age_hours(last_collected_at) if last_collected_at else None
+    snapshots_24h = int(kpi_row["snapshots_24h"] or 0)
+    active_stores_24h = int(kpi_row["active_stores_24h"] or 0)
+    snapshots_linked = int(kpi_row["snapshots_linked"] or 0)
+    golden_records_distinct = int(kpi_row["golden_records_distinct"] or 0)
+    unlinked_snapshots = total_indexed - snapshots_linked
+
+    total_runs = db.execute("SELECT COUNT(*) as n FROM collector_runs").fetchone()["n"]
 
     try:
         from index_gate import registry_size
@@ -655,38 +631,33 @@ def _dashboard_data():
     store_health = [{k: r[k] for k in r.keys()} for r in store_health_all if r["store"] in get_default_stores()]
     healthy_count = sum(1 for h in store_health if float(h.get("success_pct") or 0) >= 80)
 
-    # ── Per-store coverage 7d ─────────────────────────────────────────────────
+    # ── Per-store windows: coverage 7d + fresh 24h + active 7d — one pass ──────
     cutoff_7d = (now - timedelta(days=7)).isoformat()
-    store_coverage_rows = db.execute(
-        """SELECT store,
-                  COUNT(*) FILTER (WHERE queried_at >= ?) as snapshots_7d,
-                  COUNT(*) as total_snapshots
+    store_window_rows = db.execute(
+        f"""SELECT store,
+                  COUNT(*) AS total_snapshots,
+                  COUNT(*) FILTER (WHERE queried_at >= ?) AS snapshots_7d,
+                  COUNT(*) FILTER (WHERE queried_at >= {cutoff_24h_sql}) AS snapshots_24h,
+                  MAX(queried_at) AS last_seen
            FROM price_snapshots WHERE price > 0
            GROUP BY store""",
         (cutoff_7d,),
     ).fetchall()
     store_coverage_map: dict[str, float] = {}
-    for r in store_coverage_rows:
+    stores_fresh_24h: set[str] = set()
+    stores_active_7d: set[str] = set()
+    _defaults = get_default_stores()
+    for r in store_window_rows:
         sid = r["store"]
         total = int(r["total_snapshots"] or 0)
         store_coverage_map[sid] = round(int(r["snapshots_7d"] or 0) / total * 100, 1) if total > 0 else 0.0
+        if sid in _defaults:
+            if int(r["snapshots_24h"] or 0) > 0:
+                stores_fresh_24h.add(sid)
+            if int(r["snapshots_7d"] or 0) > 0:
+                stores_active_7d.add(sid)
     for h in store_health:
         h["coverage_7d_pct"] = store_coverage_map.get(h["store"], 0.0)
-
-    # ── Moat summary (agent-facing, rolling windows) ─────────────────────────
-    stores_fresh_24h_rows = db.execute(
-        """SELECT store, MAX(queried_at) as last_seen, COUNT(*) as n
-           FROM price_snapshots WHERE price > 0 AND queried_at >= """
-        + cutoff_24h_sql
-        + " GROUP BY store"
-    ).fetchall()
-    stores_fresh_24h = {r["store"] for r in stores_fresh_24h_rows if r["store"] in get_default_stores()}
-    stores_active_7d_rows = db.execute(
-        """SELECT store, COUNT(*) as n FROM price_snapshots
-           WHERE price > 0 AND queried_at >= ? GROUP BY store""",
-        (cutoff_7d,),
-    ).fetchall()
-    stores_active_7d = {r["store"] for r in stores_active_7d_rows if r["store"] in get_default_stores()}
     coverage_7d_pct = round(len(stores_active_7d) / len(get_default_stores()) * 100, 1) if get_default_stores() else 0
     fresh_24h_pct = round(len(stores_fresh_24h) / len(get_default_stores()) * 100, 1) if get_default_stores() else 0
     moat_stale = sorted(
