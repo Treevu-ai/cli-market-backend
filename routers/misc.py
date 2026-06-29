@@ -31,28 +31,30 @@ def favorites(body: dict, authorization: str | None = Header(None)):
     username = require_api_key(authorization)
     action = body.get("action", "list")
     db = get_db()
-    if action == "add":
-        db.execute(
-            "INSERT OR IGNORE INTO app_favorites (username, product_id, name, store) VALUES (?,?,?,?)",
-            (
-                username,
-                body.get("product_id", ""),
-                body.get("name", ""),
-                body.get("store", ""),
-            ),
-        )
-        db.commit()
-    elif action == "remove":
-        db.execute(
-            "DELETE FROM app_favorites WHERE username=? AND product_id=?",
-            (username, body.get("product_id", "")),
-        )
-        db.commit()
-    rows = db.execute(
-        "SELECT product_id, name, store FROM app_favorites WHERE username=? ORDER BY product_id",
-        (username,),
-    ).fetchall()
-    db.close()
+    try:
+        if action == "add":
+            db.execute(
+                "INSERT OR IGNORE INTO app_favorites (username, product_id, name, store) VALUES (?,?,?,?)",
+                (
+                    username,
+                    body.get("product_id", ""),
+                    body.get("name", ""),
+                    body.get("store", ""),
+                ),
+            )
+            db.commit()
+        elif action == "remove":
+            db.execute(
+                "DELETE FROM app_favorites WHERE username=? AND product_id=?",
+                (username, body.get("product_id", "")),
+            )
+            db.commit()
+        rows = db.execute(
+            "SELECT product_id, name, store FROM app_favorites WHERE username=? ORDER BY product_id",
+            (username,),
+        ).fetchall()
+    finally:
+        db.close()
     return {"favorites": [dict(r) for r in rows], "total": len(rows)}
 
 
@@ -119,13 +121,15 @@ async def telegram_webhook(request: Request):
         return {"status": "no_message"}
     try:
         db = get_db()
-        db.execute(
-            "INSERT OR REPLACE INTO contacts (chat_id, first_name, username, last_message, created_at) "
-            "VALUES (?,?,?,?,datetime('now'))",
-            (chat_id, first_name, chat.get("username", ""), text),
-        )
-        db.commit()
-        db.close()
+        try:
+            db.execute(
+                "INSERT OR REPLACE INTO contacts (chat_id, first_name, username, last_message, created_at) "
+                "VALUES (?,?,?,?,datetime('now'))",
+                (chat_id, first_name, chat.get("username", ""), text),
+            )
+            db.commit()
+        finally:
+            db.close()
     except Exception:
         logger.warning("failed to persist telegram contact chat_id=%s", chat_id, exc_info=True)
 
@@ -146,12 +150,14 @@ async def telegram_webhook(request: Request):
         reply = f"\U0001f50d <b>Buscando:</b> {query}\n\n"
         try:
             db_q = get_db()
-            rows = db_q.execute(
-                "SELECT * FROM price_snapshots WHERE name LIKE ? "
-                "ORDER BY queried_at DESC LIMIT 5",
-                (f"%{query}%",),
-            ).fetchall()
-            db_q.close()
+            try:
+                rows = db_q.execute(
+                    "SELECT * FROM price_snapshots WHERE name LIKE ? "
+                    "ORDER BY queried_at DESC LIMIT 5",
+                    (f"%{query}%",),
+                ).fetchall()
+            finally:
+                db_q.close()
             if rows:
                 for r in rows:
                     reply += f"\u2022 <b>{r['name']}</b>\n  {r['store_name']} — {r['currency']} {r['price']}\n"
