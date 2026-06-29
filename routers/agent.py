@@ -118,8 +118,9 @@ async def _exec_search_products(query: str, country: str = "PE", limit: int = 8)
         req = SearchRequest(query=query, country=country.upper(), limit=min(limit, 20))
         result = await _search_products(req)
         products = result.get("products", [])
+        priced = [p for p in products if (p.get("price") or 0) > 0]
         return {
-            "total": result.get("total", len(products)),
+            "total": len(priced),
             "products": [
                 {
                     "name": p.get("name", ""),
@@ -129,7 +130,7 @@ async def _exec_search_products(query: str, country: str = "PE", limit: int = 8)
                     "brand": p.get("brand", ""),
                     "stock": p.get("stock"),
                 }
-                for p in products[:limit]
+                for p in priced[:limit]
             ],
         }
     except Exception as e:
