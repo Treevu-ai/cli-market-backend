@@ -82,12 +82,12 @@ def test_cb_cooldown_expires():
     original_threshold = cp.CB_FAIL_THRESHOLD
     original_cooldown = cp.CB_COOLDOWN
     cp.CB_FAIL_THRESHOLD = 1
-    cp.CB_COOLDOWN = 0  # instant expiry
+    cp.CB_COOLDOWN = 1  # 1-second cooldown; sleep past it to verify recovery
     try:
         cb = cp.CB()
         cb.lose("temp_store")
-        assert cb.ok("temp_store") is False  # open immediately
-        time.sleep(0.01)
+        assert cb.ok("temp_store") is False  # open
+        time.sleep(1.1)
         assert cb.ok("temp_store") is True   # cooldown expired
     finally:
         cp.CB_FAIL_THRESHOLD = original_threshold
@@ -124,6 +124,11 @@ def test_sq_consecutive_failures_returns_zero_when_no_row(isolated_db):
     from market_core import get_db
     import collect_prices as cp
     db = get_db()
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS store_health "
+        "(store TEXT PRIMARY KEY, consecutive_failures INTEGER DEFAULT 0, total_requests INTEGER DEFAULT 0)"
+    )
+    db.commit()
     result = cp._sq_consecutive_failures(db, "nonexistent_store")
     db.close()
     assert result == 0
@@ -133,6 +138,11 @@ def test_sq_consecutive_failures_reads_from_store_health(isolated_db):
     from market_core import get_db
     import collect_prices as cp
     db = get_db()
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS store_health "
+        "(store TEXT PRIMARY KEY, consecutive_failures INTEGER DEFAULT 0, total_requests INTEGER DEFAULT 0)"
+    )
+    db.commit()
     db.execute(
         "INSERT INTO store_health (store, consecutive_failures, total_requests) VALUES (?, ?, ?)",
         ("broken_store", 15, 20),
