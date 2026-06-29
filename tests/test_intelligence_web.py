@@ -48,8 +48,11 @@ def test_embed_snippet_includes_iframe():
 
 
 def test_mcp_tools_include_intelligence_terminal():
+    # market_intel_pulse, market_forecast, market_arbitrage were removed from the
+    # default profile in the registry (2026-06-29). Assert on the intelligence tools
+    # that replaced them in the default profile.
     names = {t["name"] for t in _TOOLS}
-    for tool in ("market_intel_pulse", "market_forecast", "market_arbitrage"):
+    for tool in ("market_intel_brief", "market_inflation", "market_scores", "market_affordability", "market_inflation_report"):
         assert tool in names
 
 
