@@ -1,0 +1,45 @@
+name: Procure Grace Period Job
+
+on:
+  schedule:
+    - cron: "0 9 * * *"   # 09:00 UTC daily (04:00 PE)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no emails or downgrades)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  grace-period:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run grace period job
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          PROCURE_APP_URL: ${{ secrets.PROCURE_APP_URL }}
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          python ops/procure_grace_period_job.py $DRY_RUN_FLAG
