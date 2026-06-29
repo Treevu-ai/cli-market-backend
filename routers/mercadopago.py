@@ -65,7 +65,9 @@ def _activate_procure_from_request(request_id: str, *, source: str) -> list[str]
     if not tier:
         return [f"unknown_procure_request:{request_id}"]
 
-    db_set_subscription(username, tier)
+    # MP Fase 1 = one-shot preference (not recurring) — grant 30-day subscription
+    # with grace period logic handled by ops/procure_grace_period_job.py
+    db_set_subscription(username, tier, expires_days=30)
     db_mark_subscription_request_activated(request_id, username)
     db_mark_subscription_requests_activated_for_user(username)
     actions = [f"{tier}_activated:{username}", f"request_closed:{request_id}"]
