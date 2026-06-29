@@ -19,6 +19,26 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import unicodedata
+import re
+
+
+def _normalize_text(text: str) -> str:
+    text = text.lower()
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9\s]", " ", text)
+
+
+def _query_tokens(query: str) -> list[str]:
+    return [w for w in _normalize_text(query).split() if len(w) >= 2]
+
+
+def _is_relevant(product_name: str, q_tokens: list[str]) -> bool:
+    if not q_tokens:
+        return False
+    name_words = frozenset(w for w in _normalize_text(product_name).split() if len(w) >= 2)
+    return any(qt in name_words for qt in q_tokens)
 
 import httpx
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
@@ -66,24 +86,31 @@ async def ticket_scan(file: UploadFile = File(...), country: str | None = None, 
         os.unlink(tmp_path)
     lines = [ln.strip() for ln in ocr_text.split("\n") if ln.strip() and len(ln.strip()) > 3]
     items_found: list[dict] = []
+
+    # Load candidates once (capped at 5000 rows) and filter in-process using
+    # proper word-boundary relevance instead of a fragile LIKE query.
+    candidates = db.execute(
+        "SELECT name, store_name, price, currency FROM price_snapshots LIMIT 5000"
+    ).fetchall()
+
     for line in lines[:20]:
-        words = line.split()
-        if len(words) < 2:
+        q_tokens = _query_tokens(line)
+        if len(q_tokens) < 2:
             continue
-        query = "%" + "%".join(words[:3]) + "%"
-        row = db.execute(
-            "SELECT name, store_name, price, currency FROM price_snapshots "
-            "WHERE name LIKE ? ORDER BY price ASC LIMIT 1",
-            (query,),
-        ).fetchone()
-        if row:
+        best = None
+        best_price = float("inf")
+        for row in candidates:
+            if _is_relevant(row["name"], q_tokens) and row["price"] < best_price:
+                best = row
+                best_price = row["price"]
+        if best:
             items_found.append(
                 {
                     "ticket_text": line[:50],
-                    "best_match": row["name"],
-                    "store": row["store_name"],
-                    "price": row["price"],
-                    "currency": row["currency"],
+                    "best_match": best["name"],
+                    "store": best["store_name"],
+                    "price": best["price"],
+                    "currency": best["currency"],
                 }
             )
     savings = sum((i.get("price", 0) or 0) for i in items_found) if items_found else 0
