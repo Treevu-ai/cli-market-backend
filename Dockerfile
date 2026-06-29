@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Railway → API service → Variables: GITHUB_TOKEN or GH_TOKEN (PAT, repo read on cli-market-index).
 ARG GITHUB_TOKEN
 ARG GH_TOKEN
-ARG CACHE_BUST=2026-06-29-core-9b9b441
+ARG CACHE_BUST=2026-06-29-core-83fe4fc
 
 COPY requirements.txt requirements-private.txt .
 RUN set -eux; \
