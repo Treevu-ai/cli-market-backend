@@ -68,27 +68,29 @@ async def ticket_scan(file: UploadFile = File(...), country: str | None = None, 
     lines = [ln.strip() for ln in ocr_text.split("\n") if ln.strip() and len(ln.strip()) > 3]
     db = get_db()
     items_found: list[dict] = []
-    for line in lines[:20]:
-        words = line.split()
-        if len(words) < 2:
-            continue
-        query = "%" + "%".join(words[:3]) + "%"
-        row = db.execute(
-            "SELECT name, store_name, price, currency FROM price_snapshots "
-            "WHERE name LIKE ? ORDER BY price ASC LIMIT 1",
-            (query,),
-        ).fetchone()
-        if row:
-            items_found.append(
-                {
-                    "ticket_text": line[:50],
-                    "best_match": row["name"],
-                    "store": row["store_name"],
-                    "price": row["price"],
-                    "currency": row["currency"],
-                }
-            )
-    db.close()
+    try:
+        for line in lines[:20]:
+            words = line.split()
+            if len(words) < 2:
+                continue
+            query = "%" + "%".join(words[:3]) + "%"
+            row = db.execute(
+                "SELECT name, store_name, price, currency FROM price_snapshots "
+                "WHERE name LIKE ? ORDER BY price ASC LIMIT 1",
+                (query,),
+            ).fetchone()
+            if row:
+                items_found.append(
+                    {
+                        "ticket_text": line[:50],
+                        "best_match": row["name"],
+                        "store": row["store_name"],
+                        "price": row["price"],
+                        "currency": row["currency"],
+                    }
+                )
+    finally:
+        db.close()
     savings = sum((i.get("price", 0) or 0) for i in items_found) if items_found else 0
     return {
         "ocr_text": ocr_text[:500],
