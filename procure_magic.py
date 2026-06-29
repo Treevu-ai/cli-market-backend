@@ -39,7 +39,7 @@ def procure_app_url() -> str:
     return (
         os.getenv("PROCURE_APP_URL")
         or os.getenv("NEXT_PUBLIC_PROCURE_APP_URL")
-        or "https://procure-copilot.contacto-8e4.workers.dev/dashboard"
+        or "https://procurecopilot.com/dashboard"
     ).rstrip("/")
 
 

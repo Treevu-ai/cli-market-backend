@@ -100,6 +100,28 @@ def _activate_procure_from_request(request_id: str, *, source: str) -> list[str]
         logger.exception("procure credentials email failed for %s", username)
         actions.append("credentials_email_failed")
 
+    if email:
+        try:
+            from procure_magic import (
+                build_procure_magic_url,
+                create_procure_magic_token,
+                procure_magic_enabled,
+            )
+            from market_connectors.email_outbound import send_procure_magic_link_email
+            if procure_magic_enabled():
+                token = create_procure_magic_token(username, tier)
+                magic_url = build_procure_magic_url(token)
+                send_procure_magic_link_email(
+                    to_email=email,
+                    username=username,
+                    magic_url=magic_url,
+                    plan=tier,
+                )
+                actions.append(f"magic_link_sent:{email}")
+        except Exception:
+            logger.exception("procure magic link email failed for %s", username)
+            actions.append("magic_link_failed")
+
     logger.info(
         "procure activated username=%s tier=%s request_id=%s source=%s",
         username, tier, request_id, source,

@@ -1115,15 +1115,18 @@ async def billing_procure_subscribe(body: dict, authorization: str | None = Head
 
         if method == "mercadopago":
             from market_connectors.mercadopago_payments import create_preference
-            mp_return = os.getenv("PROCURE_MP_SUCCESS_URL", f"https://cli-market.dev/?mp=success&audience=procure&ref={request_id_procure}#procure")
+            mp_return = os.getenv(
+                "PROCURE_MP_SUCCESS_URL",
+                f"https://procurecopilot.com/welcome?plan={plan_slug}&ref={request_id_procure}",
+            )
             mp = await create_preference(
                 amount_pen,
                 "PEN",
                 f"CLI-Market-{request_id_procure}",
                 title=cfg["label"],
                 success_url=mp_return.replace("{ref}", request_id_procure),
-                pending_url=f"https://cli-market.dev/?mp=pending&audience=procure&ref={request_id_procure}#procure",
-                failure_url=f"https://cli-market.dev/?mp=failure&audience=procure&ref={request_id_procure}#procure",
+                pending_url=f"https://procurecopilot.com/welcome?plan={plan_slug}&status=pending&ref={request_id_procure}",
+                failure_url=f"https://procurecopilot.com/welcome?plan={plan_slug}&status=failure&ref={request_id_procure}",
             )
             if not mp.get("checkout_url"):
                 raise HTTPException(status_code=502, detail=mp.get("error", "Mercado Pago error"))
