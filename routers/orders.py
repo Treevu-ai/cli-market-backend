@@ -75,23 +75,40 @@ def order_history(authorization: str | None = Header(None)):
     return {"username": username, "orders": user_orders, "total_orders": len(user_orders)}
 
 
+def _fetch_order_with_items(db, order_id: str, username: str):
+    """Return (order_row, items_rows) in one JOIN query, or (None, []) if not found."""
+    rows = db.execute(
+        """SELECT o.*, i.id AS item_id, i.name, i.price, i.quantity,
+                  i.product_id, i.store, i.store_name, i.url
+           FROM app_orders o
+           LEFT JOIN app_order_items i ON i.order_id = o.order_id
+           WHERE o.order_id = ? AND o.username = ?""",
+        (order_id, username),
+    ).fetchall()
+    if not rows:
+        return None, []
+    order = {k: rows[0][k] for k in rows[0].keys() if not k.startswith("item_") and k not in
+             ("name", "price", "quantity", "product_id", "store", "store_name", "url")}
+    items = [
+        {k: r[k] for k in ("item_id", "name", "price", "quantity",
+                            "product_id", "store", "store_name", "url", "order_id")}
+        for r in rows if r["item_id"] is not None
+    ]
+    return order, items
+
+
 @router.get("/orders/{order_id}")
 def order_status(order_id: str, authorization: str | None = Header(None)):
     username = require_api_key(authorization)
     db = get_db()
-    order = db.execute(
-        "SELECT * FROM app_orders WHERE order_id=? AND username=?", (order_id, username)
-    ).fetchone()
-    if not order:
+    try:
+        order, items = _fetch_order_with_items(db, order_id, username)
+    finally:
         db.close()
+    if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    items_raw = db.execute(
-        "SELECT * FROM app_order_items WHERE order_id=?", (order_id,)
-    ).fetchall()
-    db.close()
-    items = [dict(i) for i in items_raw]
     enrich_list(items)
-    return {"order": dict(order), "items": items}
+    return {"order": order, "items": items}
 
 
 @router.get("/orders/{order_id}/receipt")
@@ -103,16 +120,12 @@ def order_receipt(order_id: str, authorization: str | None = Header(None)):
     """
     username = require_api_key(authorization)
     db = get_db()
-    order = db.execute(
-        "SELECT * FROM app_orders WHERE order_id=? AND username=?", (order_id, username)
-    ).fetchone()
-    if not order:
+    try:
+        order, items = _fetch_order_with_items(db, order_id, username)
+    finally:
         db.close()
+    if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    items = db.execute(
-        "SELECT * FROM app_order_items WHERE order_id=?", (order_id,)
-    ).fetchall()
-    db.close()
     company = get_company()
     total_calc = round(sum(i["price"] * i["quantity"] for i in items), 2)
     return {
