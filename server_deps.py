@@ -13,8 +13,11 @@ Contents:
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from typing import Annotated, Generator
+
+logger = logging.getLogger("market.server_deps")
 
 from fastapi import Depends, HTTPException
 
@@ -132,21 +135,34 @@ RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
 
 
 def check_rate_limit(ip: str) -> None:
-    check_rate_limit_sqlite(
-        ip,
-        window_secs=RATE_LIMIT_WINDOW,
-        max_req=RATE_LIMIT_MIN,
-        daily_max=RATE_LIMIT_DAY,
-    )
+    try:
+        check_rate_limit_sqlite(
+            ip,
+            window_secs=RATE_LIMIT_WINDOW,
+            max_req=RATE_LIMIT_MIN,
+            daily_max=RATE_LIMIT_DAY,
+        )
+    except Exception as exc:
+        if getattr(exc, "status_code", 0) == 429:
+            logger.warning("rate_limit.ip ip=%s", ip)
+        raise
 
 
 # ── Auth header helper ───────────────────────────────────────────────────────
 
 def require_user(authorization: str | None) -> str:
-    """Common pattern: Authorization header → username. Raises 401 if absent."""
+    """Common pattern: Authorization header → username. Raises 401 if absent.
+
+    Also applies per-user rate limiting so account-management endpoints
+    (e.g. /auth/keys, /auth/revoke) can't be hammered by an authenticated
+    user rotating IPs to bypass the IP-only limit.
+    """
     if not authorization:
+        logger.warning("auth.require_user: missing token")
         raise HTTPException(status_code=401, detail="Sin token")
-    return auth_user(authorization.replace("Bearer ", ""))
+    username = auth_user(authorization.replace("Bearer ", ""))
+    check_user_rate_limit(username)
+    return username
 
 
 def require_admin(authorization: str | None) -> str:
@@ -218,12 +234,17 @@ def check_user_rate_limit(username: str) -> None:
     daily_max, min_max = _get_user_tier_limits(username)
     if daily_max <= 0 or min_max <= 0:
         return  # enterprise / unlimited tier
-    check_rate_limit_sqlite(
-        f"u:{username}",
-        window_secs=RATE_LIMIT_WINDOW,
-        max_req=min_max,
-        daily_max=daily_max,
-    )
+    try:
+        check_rate_limit_sqlite(
+            f"u:{username}",
+            window_secs=RATE_LIMIT_WINDOW,
+            max_req=min_max,
+            daily_max=daily_max,
+        )
+    except Exception as exc:
+        if getattr(exc, "status_code", 0) == 429:
+            logger.warning("rate_limit.user user=%s", username)
+        raise
 
 
 def require_api_key(authorization: str | None) -> str:
