@@ -234,6 +234,109 @@ def sources_health(
         db.close()
 
 
+@router.get("/health/stores")
+def health_stores(country: str | None = None):
+    """Per-store freshness dashboard — ops view of collector coverage.
+
+    For each store in the catalog returns:
+      - status: ok | stale | dead | never
+      - hours_since_snapshot: hours since last recorded price
+      - snapshots_7d: prices collected in the last 7 days
+      - consecutive_failures: scraper error streak (from store_health)
+
+    Status thresholds: ok <8h · stale 8–24h · dead >24h · never = no data.
+    No auth required — this is a public ops/monitoring endpoint.
+    """
+    from datetime import timezone as _tz
+
+    db = get_db()
+    try:
+        # Last snapshot per store
+        last_seen_rows = db.execute(
+            "SELECT store, MAX(queried_at) as last_seen, COUNT(*) as total "
+            "FROM price_snapshots WHERE price > 0 GROUP BY store"
+        ).fetchall()
+        last_seen: dict[str, tuple[str | None, int]] = {
+            r["store"]: (r["last_seen"], int(r["total"] or 0))
+            for r in last_seen_rows
+        }
+
+        # Snapshots in last 7 days per store
+        cutoff = (datetime.now(_tz.utc).replace(tzinfo=None) - __import__("datetime").timedelta(days=7)).isoformat()
+        snap7_rows = db.execute(
+            "SELECT store, COUNT(*) as n FROM price_snapshots "
+            "WHERE price > 0 AND queried_at >= ? GROUP BY store",
+            (cutoff,),
+        ).fetchall()
+        snap7: dict[str, int] = {r["store"]: int(r["n"] or 0) for r in snap7_rows}
+
+        # Consecutive failures from store_health
+        try:
+            failures_rows = db.execute(
+                "SELECT store, consecutive_failures, last_error FROM store_health"
+            ).fetchall()
+            failures: dict[str, dict] = {
+                r["store"]: {"consecutive_failures": int(r["consecutive_failures"] or 0), "last_error": r["last_error"]}
+                for r in failures_rows
+            }
+        except Exception:
+            failures = {}
+    finally:
+        db.close()
+
+    stores_out: list[dict] = []
+    for store_id, meta in STORES.items():
+        if meta.get("disabled"):
+            continue
+        if country and meta["country"] != country.upper():
+            continue
+
+        seen_at, total_snaps = last_seen.get(store_id, (None, 0))
+        age_h = _age_hours(seen_at)
+
+        if seen_at is None:
+            status = "never"
+        elif age_h is None:
+            status = "unknown"
+        elif age_h < 8:
+            status = "ok"
+        elif age_h < 24:
+            status = "stale"
+        else:
+            status = "dead"
+
+        fail_data = failures.get(store_id, {})
+        stores_out.append({
+            "store": store_id,
+            "name": meta.get("name", store_id),
+            "country": meta.get("country", "??"),
+            "line": meta.get("line", ""),
+            "status": status,
+            "hours_since_snapshot": round(age_h, 1) if age_h is not None else None,
+            "last_snapshot_at": seen_at,
+            "snapshots_total": total_snaps,
+            "snapshots_7d": snap7.get(store_id, 0),
+            "consecutive_failures": fail_data.get("consecutive_failures", 0),
+            "last_error": fail_data.get("last_error"),
+        })
+
+    # Sort: dead first, then stale, then never, then ok — worst visible first
+    _order = {"dead": 0, "stale": 1, "never": 2, "ok": 3, "unknown": 4}
+    stores_out.sort(key=lambda s: (_order.get(s["status"], 9), s["country"], s["name"]))
+
+    summary = {"ok": 0, "stale": 0, "dead": 0, "never": 0, "total": len(stores_out)}
+    for s in stores_out:
+        k = s["status"]
+        if k in summary:
+            summary[k] += 1
+
+    return {
+        "summary": summary,
+        "stores": stores_out,
+        "thresholds": {"ok_h": 8, "stale_h": 24},
+    }
+
+
 @router.get("/health/stats")
 def health_stats():
     """Live KPIs for landing and ops — moat freshness, linkage %, scraping summary."""
