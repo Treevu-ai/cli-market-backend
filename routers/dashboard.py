@@ -358,14 +358,9 @@ def _dashboard_data():
         d["avg_price_usd"] = price_to_usd(d.get("avg_price", 0), d.get("currency", ""))
 
     # ── By line + currency: Python-side percentiles (P25/P50/P75) ─────────────
-    price_rows = db.execute(
-        """SELECT line, line_name, currency, price, product_id, store
-           FROM price_snapshots WHERE price > 0 AND price < 999999
-           ORDER BY line, currency"""
-    ).fetchall()
-
+    # Derived from spread_rows (already loaded) — no extra query.
     groups: dict[tuple[str, str], dict] = {}
-    for r in price_rows:
+    for r in spread_rows:
         key = (r["line"], r["currency"])
         if key not in groups:
             groups[key] = {
@@ -408,20 +403,20 @@ def _dashboard_data():
         })
 
     # ── Normalized unit audit: per-category sample + non-normalizable counts ──
+    # Derived from spread_rows — no extra query.
     from market_units import parse_pack_size
-
-    unit_names_rows = db.execute(
-        """SELECT line, currency, name FROM price_snapshots
-           WHERE price > 0 AND price < 999999
-           GROUP BY line, currency, name"""
-    ).fetchall()
 
     group_names: dict[tuple[str, str], list[str]] = {}
     all_distinct: set[str] = set()
-    for r in unit_names_rows:
-        key = (r["line"], r["currency"])
-        group_names.setdefault(key, []).append(r["name"])
-        all_distinct.add(r["name"])
+    seen_name_keys: set[tuple[str, str, str]] = set()
+    for r in spread_rows:
+        triple = (r["line"], r["currency"], r["name"])
+        if triple not in seen_name_keys:
+            seen_name_keys.add(triple)
+            key = (r["line"], r["currency"])
+            group_names.setdefault(key, []).append(r["name"])
+            all_distinct.add(r["name"])
+    del seen_name_keys
 
     parseable_total = sum(1 for n in all_distinct if parse_pack_size(n))
     non_normalizable_names = len(all_distinct) - parseable_total
@@ -517,29 +512,26 @@ def _dashboard_data():
     now7 = (now - timedelta(days=7)).isoformat()
     now14 = (now - timedelta(days=14)).isoformat()
 
-    recent_prices = db.execute(
-        """SELECT product_id, store, price, queried_at
-           FROM price_snapshots WHERE price > 0 AND queried_at >= ?""",
-        (now7,)
-    ).fetchall()
-
-    older_prices = db.execute(
-        """SELECT product_id, store, price, queried_at
-           FROM price_snapshots WHERE price > 0 AND queried_at >= ? AND queried_at < ?""",
-        (now14, now7)
+    # One scan for both windows; MAX(queried_at) picks latest row per window.
+    trend_rows = db.execute(
+        """SELECT product_id, store,
+                  MAX(price) FILTER (WHERE queried_at >= ?) AS price_recent,
+                  MAX(queried_at) FILTER (WHERE queried_at >= ?) AS ts_recent,
+                  MAX(price) FILTER (WHERE queried_at >= ? AND queried_at < ?) AS price_older
+           FROM price_snapshots WHERE price > 0 AND queried_at >= ?
+           GROUP BY product_id, store""",
+        (now7, now7, now14, now7, now14)
     ).fetchall()
 
     recent_map: dict[tuple, dict] = {}
-    for r in recent_prices:
-        key = (r["product_id"], r["store"])
-        if key not in recent_map or r["queried_at"] > recent_map[key]["queried_at"]:
-            recent_map[key] = dict(r)
-
     older_map: dict[tuple, dict] = {}
-    for r in older_prices:
+    for r in trend_rows:
         key = (r["product_id"], r["store"])
-        if key not in older_map or r["queried_at"] > older_map[key]["queried_at"]:
-            older_map[key] = dict(r)
+        if r["price_recent"] is not None:
+            recent_map[key] = {"product_id": r["product_id"], "store": r["store"],
+                                "price": r["price_recent"], "queried_at": r["ts_recent"]}
+        if r["price_older"] is not None:
+            older_map[key] = {"price": r["price_older"]}
 
     movers: list[dict] = []
     for key, recent in recent_map.items():
