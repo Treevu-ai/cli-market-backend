@@ -666,41 +666,33 @@ def _dashboard_data():
            FROM collector_runs ORDER BY id DESC LIMIT 10"""
     ).fetchall()
 
-    # ── Exploratoria: price distribution ─────────────────────────────────────
-    price_dist = db.execute(
-        """SELECT
-             CASE WHEN price<=10 THEN '0-10'
-                  WHEN price<=50 THEN '10-50'
-                  WHEN price<=100 THEN '50-100'
-                  WHEN price<=500 THEN '100-500'
-                  ELSE '500+'
-             END as bucket,
-             COUNT(*) as count
-           FROM price_snapshots WHERE price>0 AND price<999999
-           GROUP BY bucket ORDER BY MIN(price)"""
-    ).fetchall()
-
-    # ── Exploratoria: line-country matrix ────────────────────────────────────
-    line_country_raw = db.execute(
-        """SELECT ps.line, ps.store, COUNT(*) as n
-           FROM price_snapshots ps WHERE ps.price>0
-           GROUP BY ps.line, ps.store"""
-    ).fetchall()
-    line_country_map: dict[str, set] = {}
-    for r in line_country_raw:
+    # ── Exploratoria: price_dist, line_country_matrix, products_per_store ──────
+    # All three derived from spread_rows (already in memory) — no extra queries.
+    _price_buckets: dict[str, int] = {"0-10": 0, "10-50": 0, "50-100": 0, "100-500": 0, "500+": 0}
+    _line_country_map: dict[str, set] = {}
+    _store_products: dict[str, dict] = {}
+    for r in spread_rows:
+        p = float(r["price"])
+        bucket = "0-10" if p <= 10 else "10-50" if p <= 50 else "50-100" if p <= 100 else "100-500" if p <= 500 else "500+"
+        _price_buckets[bucket] += 1
         country = STORES.get(r["store"], {}).get("country", "??")
-        key = f"{r['line']}|{country}"
-        line_country_map.setdefault(key, set()).add(r["store"])
-    line_country_matrix = [{"line": k.split("|")[0], "country": k.split("|")[1], "stores": len(v)}
-                           for k, v in line_country_map.items()]
+        lc_key = f"{r['line']}|{country}"
+        _line_country_map.setdefault(lc_key, set()).add(r["store"])
+        sp = _store_products.setdefault(r["store"], {"store": r["store"], "store_name": r["store_name"], "products": set(), "total": 0})
+        sp["products"].add(r["product_id"])
+        sp["total"] += 1
 
-    # ── Exploratoria: products per store ─────────────────────────────────────
-    products_per_store = db.execute(
-        """SELECT store_name, store, COUNT(DISTINCT product_id) as unique_products,
-                  COUNT(*) as total_snapshots
-           FROM price_snapshots WHERE price>0
-           GROUP BY store, store_name ORDER BY unique_products DESC LIMIT 15"""
-    ).fetchall()
+    price_dist = [{"bucket": b, "count": c} for b, c in _price_buckets.items() if c > 0]
+    line_country_matrix = [
+        {"line": k.split("|")[0], "country": k.split("|")[1], "stores": len(v)}
+        for k, v in _line_country_map.items()
+    ]
+    products_per_store = sorted(
+        [{"store": v["store"], "store_name": v["store_name"],
+          "unique_products": len(v["products"]), "total_snapshots": v["total"]}
+         for v in _store_products.values()],
+        key=lambda x: x["unique_products"], reverse=True
+    )[:15]
 
     # ── Outliers: bidirectional vs group median (not mean) ───────────────────
     spread_products = [dict(r) for r in spread_rows]
@@ -708,27 +700,14 @@ def _dashboard_data():
     for item in outliers:
         item["price_usd"] = price_to_usd(item.get("price", 0), item.get("currency", ""))
 
-    # Enrich outliers with store health state at capture time
-    outlier_stores = list({o["store"] for o in outliers if o.get("store")})
-    if outlier_stores:
-        store_health_lookup = {}
-        for sh in db.execute(
-            """SELECT store, total_requests, total_successes,
-                      CASE WHEN total_requests>0 THEN ROUND((total_successes*100.0/total_requests)::numeric,1)
-                           ELSE 0 END as success_pct,
-                      consecutive_failures
-               FROM store_health WHERE store IN ({})""".format(
-                ",".join("?" * len(outlier_stores))
-            ),
-            outlier_stores,
-        ).fetchall():
-            sid = sh["store"]
-            pct = float(sh["success_pct"] or 0)
-            store_health_lookup[sid] = (
-                "dead" if pct < 30 else ("ok" if pct >= 80 else "partial")
-            )
-        for o in outliers:
-            o["store_health_state"] = store_health_lookup.get(o.get("store", ""), "unknown")
+    # Enrich outliers from already-loaded store_health_all — no extra query.
+    _sh_state_map = {
+        h["store"]: ("dead" if float(h.get("success_pct") or 0) < 30
+                     else "ok" if float(h.get("success_pct") or 0) >= 80 else "partial")
+        for h in store_health_all
+    }
+    for o in outliers:
+        o["store_health_state"] = _sh_state_map.get(o.get("store", ""), "unknown")
 
     # ── Inflation 7d: per line + currency — single GROUP BY with FILTER ────────
     inflation_rows = db.execute(
