@@ -43,6 +43,14 @@ DAEMON_INTERVAL = int(os.getenv("COLLECT_INTERVAL_HOURS", "4"))
 MAX_QUERIES_PER_LINE = int(os.getenv("COLLECT_MAX_QUERIES_PER_LINE", "12"))
 CORE_QUERIES_PER_LINE = int(os.getenv("COLLECT_CORE_QUERIES", "3"))
 COLLECTOR_ADVISORY_LOCK = int(os.getenv("COLLECTOR_ADVISORY_LOCK", "84957231"))
+# Circuit breaker: trip after CB_FAIL_THRESHOLD consecutive query failures;
+# stay open for CB_COOLDOWN seconds (default 5 min — outlasts the current cycle).
+# Set low so one broken store doesn't burn MAX_QUERIES * QUERY_TIMEOUT seconds.
+CB_FAIL_THRESHOLD = int(os.getenv("CB_FAIL_THRESHOLD", "3"))
+CB_COOLDOWN = int(os.getenv("CB_COOLDOWN", "300"))
+# Skip stores that have failed consecutively for this many full collector cycles
+# (read from store_health table at the start of each cycle).
+CB_PERSIST_SKIP = int(os.getenv("CB_PERSIST_SKIP", "10"))
 INDEX_COLLECT_ENABLED = os.getenv("INDEX_COLLECT_ENABLED", "1").strip().lower() not in (
     "0",
     "false",
@@ -688,7 +696,7 @@ class CB:
     def win(s,k): s.f[k]=0
     def lose(s,k):
         s.f[k]+=1
-        if s.f[k]>=50: s.o[k]=time.time()+60
+        if s.f[k]>=CB_FAIL_THRESHOLD: s.o[k]=time.time()+CB_COOLDOWN
     def reset(s): s.f.clear(); s.o.clear()
 cb=CB()
 
@@ -792,9 +800,25 @@ async def force_catalog_stores(stores: list[str]) -> dict:
 
 # ── Collector core ──────────────────────────────────────────────────────────
 
+async def _pg_consecutive_failures(pool, store: str) -> int:
+    """Read persistent consecutive_failures from store_health (0 if not found)."""
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT consecutive_failures FROM store_health WHERE store=$1", store
+            )
+            return int(row["consecutive_failures"] or 0) if row else 0
+    except Exception:
+        return 0
+
+
 async def collect_one_pg(pool, store, queries):
     if not cb.ok(store):
         logger.warning("circuit open — skipping %s", store)
+        return 0
+    consec = await _pg_consecutive_failures(pool, store)
+    if consec >= CB_PERSIST_SKIP:
+        logger.warning("persistent failures — skipping %s (%d consecutive cycles failed)", store, consec)
         return 0
     queries = queries_for_store(store, queries)
     line = _store_line(store)
@@ -905,10 +929,28 @@ async def collect_one_pg(pool, store, queries):
         logger.warning("store %s: %d insert errors (first: %s)", store, len(insert_errors), insert_errors[0])
     return collected
 
+def _sq_consecutive_failures(db, store: str) -> int:
+    """Read persistent consecutive_failures from store_health (0 if not found)."""
+    try:
+        row = db.execute(
+            "SELECT consecutive_failures FROM store_health WHERE store=?", (store,)
+        ).fetchone()
+        return int(row["consecutive_failures"] or 0) if row else 0
+    except Exception:
+        return 0
+
+
 async def collect_one_sqlite(db, store, queries):
     """Collect for one store, reusing a single SQLite connection across
     all inserts (orders of magnitude cheaper than open-per-row, and avoids
     `database is locked` storms under PARALLEL workers)."""
+    if not cb.ok(store):
+        logger.warning("circuit open — skipping %s", store)
+        return 0
+    consec = _sq_consecutive_failures(db, store)
+    if consec >= CB_PERSIST_SKIP:
+        logger.warning("persistent failures — skipping %s (%d consecutive cycles failed)", store, consec)
+        return 0
     queries = queries_for_store(store, queries)
     line = STORES[store].get("line", "")
     collected = 0
