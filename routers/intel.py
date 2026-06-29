@@ -360,9 +360,12 @@ def intel_brief(
     active_stores = _val("store_coverage")
     confidence["stores_active"] = int(active_stores) if active_stores is not None else len(STORES)
 
+    # scores shape: {"country":..., "computed_at":..., "scores": {individual scores}, "disclaimer":...}
+    # Extract the nested scores dict before summarising.
     scores_summary: dict = {}
-    if isinstance(scores, dict):
-        for _sk, _sv in scores.items():
+    _individual_scores = scores.get("scores", {}) if isinstance(scores, dict) else {}
+    if isinstance(_individual_scores, dict):
+        for _sk, _sv in _individual_scores.items():
             if isinstance(_sv, dict):
                 scores_summary[_sk] = {"score": _sv.get("score"), "label": _sv.get("label")}
             else:
