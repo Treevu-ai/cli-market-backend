@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -66,21 +67,34 @@ _access_log = log.getChild("access")
 _SKIP_ACCESS_LOG = {"/health", "/"}
 
 
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """Inject a unique X-Request-ID into every request/response for tracing."""
+
+    async def dispatch(self, request: Request, call_next):
+        req_id = request.headers.get("x-request-id") or str(uuid.uuid4())[:8]
+        request.state.request_id = req_id
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = req_id
+        return response
+
+
 class AccessLogMiddleware(BaseHTTPMiddleware):
-    """Log every HTTP request: method, path, status, duration."""
+    """Log every HTTP request: method, path, status, duration, request ID."""
 
     async def dispatch(self, request: Request, call_next):
         start = time.monotonic()
         response = await call_next(request)
         duration_ms = (time.monotonic() - start) * 1000
         if request.url.path not in _SKIP_ACCESS_LOG:
+            req_id = getattr(request.state, "request_id", "-")
             _access_log.info(
-                "%s %s → %d  %.0fms  %s",
+                "%s %s → %d  %.0fms  %s  rid=%s",
                 request.method,
                 request.url.path,
                 response.status_code,
                 duration_ms,
                 request.client.host if request.client else "-",
+                req_id,
             )
         return response
 
@@ -151,6 +165,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(RequestIDMiddleware)
 app.add_middleware(AccessLogMiddleware)
 from market_core import db_validate_api_key
 from market_observatory import ObservatoryMiddleware

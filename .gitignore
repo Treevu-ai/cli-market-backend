@@ -11,3 +11,11 @@ build/
 .DS_Store
 *.egg
 agent-tools/
+
+# secrets / credentials — never commit
+query.py
+*SECRET*.txt
+*secret*.txt
+*password*.txt
+*credentials*.txt
+*.env.local
