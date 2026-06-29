@@ -19,7 +19,9 @@ Endpoints:
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -27,6 +29,7 @@ from pydantic import BaseModel, field_validator
 
 from market_core import STORES, get_db
 from market_enrich_subcategory import ENRICH_SUBCATEGORIES, get_subcategory_enrichment
+from market_units import price_per_base_unit
 from market_indicators import (
     ENRICHMENT_INDICATOR_KEYS,
     TIER2_INDICATOR_KEYS,
@@ -42,6 +45,24 @@ from server_deps import require_api_key, require_pro
 
 router = APIRouter(tags=["intel"])
 
+# ── In-process TTL cache (no Redis required) ──────────────────────────────────
+# Keyed by (endpoint, *args). Entries expire after TTL_SECS.
+# Acceptable for read-heavy intel endpoints where data changes every ~4h.
+
+_TTL_SECS = 300  # 5 minutes
+_cache: dict[tuple, tuple[float, Any]] = {}
+
+
+def _cache_get(key: tuple) -> Any | None:
+    entry = _cache.get(key)
+    if entry and (time.monotonic() - entry[0]) < _TTL_SECS:
+        return entry[1]
+    return None
+
+
+def _cache_set(key: tuple, value: Any) -> None:
+    _cache[key] = (time.monotonic(), value)
+
 
 def _since_iso(days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=max(1, days))).strftime("%Y-%m-%d %H:%M:%S")
@@ -56,6 +77,9 @@ def inflation_tracker(
     authorization: str | None = Header(None),
 ):
     require_api_key(authorization)
+    _ck = ("inflation", country, line, days, limit)
+    if (cached := _cache_get(_ck)) is not None:
+        return cached
     """Compute per-product price deltas within the last `days` window.
 
     Compares earliest vs latest snapshot per product name in the window.
@@ -64,7 +88,7 @@ def inflation_tracker(
     db = get_db()
     since = _since_iso(days)
     q = (
-        "SELECT name, store, store_name, currency, price, queried_at "
+        "SELECT product_id, name, store, store_name, currency, price, queried_at "
         "FROM price_snapshots WHERE price > 0 AND queried_at >= ?"
     )
     params: list = [since]
@@ -83,15 +107,29 @@ def inflation_tracker(
 
     prods: dict[str, list[dict]] = {}
     for r in rows:
-        k = f"{r['store']}|{r['name'].lower()[:40]}"
+        name = r["name"]
+        pid = r["product_id"]
+        # Normalize to price-per-base-unit so pack-size changes don't appear as inflation.
+        ppu = price_per_base_unit(r["price"], name)
+        normalized_price = ppu["price_per"] if ppu else r["price"]
+        basis = ppu["basis"] if ppu else "unit"
+        # Use canonical product_id when available — collapses "Arroz Extra Costeño 750g"
+        # and "Arroz Extra COSTEÑO Bolsa 750g" into the same bucket per store.
+        k = f"{r['store']}|{pid}" if pid else f"{r['store']}|{name.lower()[:40]}"
         prods.setdefault(k, []).append(
             {
-                "price": r["price"],
+                "price": normalized_price,
+                "raw_price": r["price"],
+                "basis": basis,
                 "date": r["queried_at"],
                 "store": r["store_name"],
                 "currency": r["currency"],
+                "name": name,
+                "product_id": pid,
             }
         )
+
+    _MAX_DELTA_PCT = 300.0  # cap: changes beyond this are likely SKU/pack switches, not real inflation
 
     items: list[dict] = []
     for _key, snaps in prods.items():
@@ -100,13 +138,20 @@ def inflation_tracker(
             first = snaps[0]
             last = snaps[-1]
             if first["price"] > 0:
-                d = round(last["price"] - first["price"], 2)
+                d = round(last["price"] - first["price"], 4)
                 dp = round((d / first["price"]) * 100, 1)
+                if abs(dp) > _MAX_DELTA_PCT:
+                    # Likely a presentation/SKU switch — skip to avoid polluting avg
+                    continue
                 items.append(
                     {
-                        "product": _key.split("|", 1)[1],
-                        "first_price": first["price"],
-                        "last_price": last["price"],
+                        "product": last["name"],
+                        "product_id": last["product_id"],
+                        "first_price": first["raw_price"],
+                        "last_price": last["raw_price"],
+                        "first_price_per_unit": first["price"],
+                        "last_price_per_unit": last["price"],
+                        "price_basis": first["basis"],
                         "first_date": first["date"],
                         "last_date": last["date"],
                         "delta": d,
@@ -118,7 +163,7 @@ def inflation_tracker(
     items.sort(key=lambda x: abs(x["delta_pct"]), reverse=True)
     items = items[:limit]
     avg = round(sum(i["delta_pct"] for i in items) / len(items), 1) if items else 0
-    return {
+    result = {
         "country": country,
         "line": line,
         "days": days,
@@ -126,8 +171,10 @@ def inflation_tracker(
         "products_tracked": len(items),
         "avg_inflation_pct": avg,
         "items": items,
-        "disclaimer": "Internal collector signal — not an official inflation index.",
+        "disclaimer": "Internal collector signal — not an official inflation index. Prices normalized per base unit (per_kg/L) to filter pack-size changes.",
     }
+    _cache_set(_ck, result)
+    return result
 
 
 @router.get("/v1/intel/alerts")
@@ -233,7 +280,12 @@ def get_indicator(
 def intel_scores(country: str | None = None, line: str | None = None, authorization: str | None = Header(None)):
     require_api_key(authorization)
     """Composite scores blending moat signals and public macro data."""
-    return compute_composite_scores(country=country, line=line)
+    _ck = ("scores", country, line)
+    if (cached := _cache_get(_ck)) is not None:
+        return cached
+    result = compute_composite_scores(country=country, line=line)
+    _cache_set(_ck, result)
+    return result
 
 
 @router.get("/v1/intel/basket-stress")
@@ -270,6 +322,9 @@ def intel_brief(
     'analytics', 'enrichment', 'subcategories', or 'catalog' slices without
     a separate round-trip per section.
     """
+    _ck = ("brief", country, line, days, include_catalog)
+    if (cached := _cache_get(_ck)) is not None:
+        return cached
     db = get_db()
 
     scores = compute_composite_scores(country=country, line=line)
@@ -349,6 +404,7 @@ def intel_brief(
     if include_catalog:
         result["catalog"] = get_indicator_catalog()
 
+    _cache_set(_ck, result)
     return result
 
 

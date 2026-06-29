@@ -26,10 +26,22 @@ import httpx
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 
+from market_core import get_db
 from market_core.market_mcp_registry import list_tools as _registry_list_tools
 from market_funnel import record_funnel_event
 from market_stats import MCP_TOOLS, PACKAGE_VERSION, RETAILERS_VERIFIED
 from server_deps import require_api_key
+
+
+def _live_store_count() -> int:
+    """Return the actual number of stores with price snapshots (live from DB)."""
+    try:
+        db = get_db()
+        row = db.execute("SELECT COUNT(DISTINCT store) FROM price_snapshots").fetchone()
+        db.close()
+        return int(row[0]) if row and row[0] else RETAILERS_VERIFIED
+    except Exception:
+        return RETAILERS_VERIFIED
 
 router = APIRouter(tags=["mcp-http"])
 
@@ -225,11 +237,12 @@ def _rpc_err(code: int, message: str, req_id) -> dict:
 @router.get("/.well-known/mcp/server-card.json")
 async def mcp_server_card():
     """Static server card for Smithery and MCP directory scanners."""
+    live_stores = _live_store_count()
     return JSONResponse({
         "name": "CLI Market",
         "version": PACKAGE_VERSION,
         "description": (
-            f"Commerce infrastructure for AI agents — {RETAILERS_VERIFIED} verified LATAM retailers, "
+            f"Commerce infrastructure for AI agents — {live_stores} verified LATAM retailers, "
             f"{len(_TOOLS)} MCP tools, 8 countries (PE, AR, BR, MX, CO, CL, IT, FR). "
             "61,000+ real prices refreshed every 4h."
         ),
@@ -310,7 +323,7 @@ async def mcp_http(
                 "name": "cli-market",
                 "version": PACKAGE_VERSION,
                 "description": (
-                    f"Commerce infrastructure for AI agents — {RETAILERS_VERIFIED} retailers, "
+                    f"Commerce infrastructure for AI agents — {_live_store_count()} retailers, "
                     f"{len(_TOOLS)} tools, 8 LATAM countries."
                 ),
             },
