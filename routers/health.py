@@ -14,6 +14,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
@@ -21,6 +22,11 @@ from fastapi import APIRouter, Request
 from market_core import STORES, LINES, COUNTRIES, get_db
 from server_deps import check_rate_limit
 from source_health import build_sources_health
+
+# Cache pg_error probe so /health/db never blocks longer than _PG_PROBE_TTL seconds
+# regardless of how often the endpoint is polled.
+_pg_probe_cache: tuple[float, str | None] | None = None  # (timestamp, error_or_none)
+_PG_PROBE_TTL = 30.0  # seconds
 
 logger = logging.getLogger("market.server").getChild("health")
 
@@ -95,26 +101,48 @@ def health():
 @router.get("/health/db")
 def health_db():
     """Database backend diagnostic — confirms PG vs SQLite."""
+    global _pg_probe_cache
     import market_core
-    # Hitting this endpoint also nudges a Postgres recovery attempt when we
-    # are in SQLite fallback mode (throttled internally).
+    # Throttled self-heal — no-op if called too recently (PG_RECOVERY_INTERVAL).
     try:
         market_core.recover_pg_if_needed()
     except Exception:
         pass
     from market_core import USE_PG, DATABASE_URL, DB_FILE
-    pg_error = None
+
+    # Probe PG connectivity only when fallen back to SQLite, and cache the
+    # result so repeated health polls never each block for connect_timeout.
+    pg_error: str | None = None
     if DATABASE_URL and not USE_PG:
-        # PG was attempted but fell back — try to get the connection error
-        try:
-            import psycopg2
-            psycopg2.connect(DATABASE_URL, connect_timeout=5)
-        except Exception as e:
-            pg_error = str(e)[:200]
+        now = time.monotonic()
+        if _pg_probe_cache is None or (now - _pg_probe_cache[0]) > _PG_PROBE_TTL:
+            try:
+                import psycopg2
+                psycopg2.connect(DATABASE_URL, connect_timeout=2)
+                _pg_probe_cache = (now, None)
+            except Exception as e:
+                _pg_probe_cache = (now, str(e)[:200])
+        pg_error = _pg_probe_cache[1] if _pg_probe_cache else None
+
     db = get_db()
     try:
         db_type = "postgresql" if USE_PG else "sqlite"
-        snapshots = db.execute("SELECT COUNT(*) as n FROM price_snapshots").fetchone()["n"]
+        # Fast approximate row count — O(log n) for SQLite (MAX(rowid)), and
+        # a stats-table lookup for PG — avoids a full COUNT(*) sequential scan.
+        if USE_PG:
+            snap_row = db.execute(
+                """
+                SELECT reltuples::bigint AS n
+                FROM pg_class WHERE relname = 'price_snapshots'
+                """
+            ).fetchone()
+            snapshots = int(snap_row["n"]) if snap_row and snap_row["n"] else 0
+        else:
+            snap_row = db.execute(
+                "SELECT MAX(rowid) AS n FROM price_snapshots"
+            ).fetchone()
+            snapshots = int(snap_row["n"]) if snap_row and snap_row["n"] else 0
+
         if not USE_PG:
             tables = db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
@@ -123,12 +151,11 @@ def health_db():
             tables = db.execute(
                 "SELECT tablename as name FROM pg_catalog.pg_tables WHERE schemaname='public' ORDER BY tablename"
             ).fetchall()
-        db.close()
+
         upsert_ready = None
         if USE_PG:
             try:
-                chk = get_db()
-                upsert_ready = bool(chk.execute(
+                upsert_ready = bool(db.execute(
                     """
                     SELECT 1 FROM pg_indexes
                     WHERE tablename = 'price_snapshots'
@@ -138,9 +165,9 @@ def health_db():
                     LIMIT 1
                     """
                 ).fetchone())
-                chk.close()
             except Exception:
                 upsert_ready = False
+
         return {
             "backend": db_type,
             "database_url_set": bool(DATABASE_URL),
@@ -152,6 +179,11 @@ def health_db():
         }
     except Exception as e:
         return {"backend": "error", "detail": str(e)}
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 @router.get("/health/collector")
