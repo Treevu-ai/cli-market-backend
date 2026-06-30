@@ -1170,7 +1170,7 @@ def main():
     p = sub.add_parser("arbitrage", help=t("arbitrage"))
     p.add_argument("product", nargs="?", default="arroz", help="Producto a comparar cross-border")
     p.add_argument("--countries", "-c", nargs="+", choices=list(COUNTRIES.keys()), default=None)
-    p.add_argument("--min-spread", type=float, default=10.0, help="Spread mínimo % para señalar oportunidad")
+    p.add_argument("--min-spread", type=float, default=10.0, help="Spread mínimo %% para señalar oportunidad")
 
     # inflation
     p = sub.add_parser("inflation", help="Ver inflación desde el data moat")
