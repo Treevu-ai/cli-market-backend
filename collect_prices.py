@@ -1165,7 +1165,18 @@ async def main():
             try:
                 cb.reset()
                 if USE_PG:
-                    pool = await get_pool()
+                    for _pg_attempt in range(1, 6):
+                        try:
+                            pool = await get_pool()
+                            break
+                        except Exception as _pg_err:
+                            global _pg_pool
+                            _pg_pool = None
+                            if _pg_attempt == 5:
+                                raise
+                            wait = _pg_attempt * 10
+                            print(f"  ⚠ PG connect attempt {_pg_attempt}/5 failed: {_pg_err} — retry in {wait}s")
+                            await asyncio.sleep(wait)
                     lock_ok = await pg_try_daemon_lock(pool)
                     if not lock_ok:
                         print(f"⏭ Another collector holds the lock — skipping cycle {cycle}")
