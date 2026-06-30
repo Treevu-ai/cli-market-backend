@@ -26,8 +26,8 @@ import uuid
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
+import market_core
 from market_core import (
-    USE_PG,
     db_create_api_key,
     db_get_subscription,
     db_get_users,
@@ -89,7 +89,7 @@ _VERIFY_CODE_LEN = 6
 
 def _ensure_pending_registrations_schema() -> None:
     db = get_db()
-    if USE_PG:
+    if market_core.USE_PG:
         db.execute("""
             CREATE TABLE IF NOT EXISTS pending_registrations (
                 email TEXT NOT NULL,
@@ -173,7 +173,7 @@ def register(body: RegisterRequest):
     expires_at = time.time() + _VERIFY_TTL
 
     db = get_db()
-    if USE_PG:
+    if market_core.USE_PG:
         db.execute(
             "INSERT INTO pending_registrations (email, code_hash, ref_code, expires_at) "
             "VALUES (%s, %s, %s, %s) "
