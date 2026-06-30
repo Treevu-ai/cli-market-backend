@@ -17,6 +17,7 @@ primary_region = "gru"
 
 [env]
   PYTHONUNBUFFERED = "1"
+  MARKET_ENV = "production"
   COLLECT_PARALLEL = "6"
   COLLECT_DELAY = "0.75"
   COLLECT_MAX_QUERIES_PER_LINE = "12"

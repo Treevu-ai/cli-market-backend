@@ -1,0 +1,49 @@
+name: Fly PG Watchdog
+
+# Probes /health/db every 10 minutes. If backend != postgresql, runs recovery.
+# Requires: FLY_API_TOKEN secret.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      needs_recovery: ${{ steps.probe.outputs.needs_recovery }}
+    steps:
+      - name: Probe /health/db
+        id: probe
+        run: |
+          set -euo pipefail
+          body="$(curl -fsS --max-time 20 https://cli-market-api.fly.dev/health/db 2>/dev/null || echo '{}')"
+          echo "response=$body"
+          backend="$(echo "$body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('backend','error'))" 2>/dev/null || echo error)"
+          echo "backend=$backend"
+          if [[ "$backend" != "postgresql" ]]; then
+            echo "needs_recovery=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::health/db backend=$backend — triggering recovery"
+          else
+            echo "needs_recovery=false" >> "$GITHUB_OUTPUT"
+            echo "OK: postgresql healthy"
+          fi
+
+  recover:
+    needs: probe
+    if: needs.probe.outputs.needs_recovery == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Restart unhealthy Postgres machines
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          chmod +x ops/fly_pg_recover.sh
+          FORCE_RESTART=1 ./ops/fly_pg_recover.sh
