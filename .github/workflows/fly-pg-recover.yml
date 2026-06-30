@@ -1,0 +1,95 @@
+name: Fly PG Recovery
+
+# Manual recovery for cli-market-db when Fly Postgres has no active leader.
+# Requires GitHub secret: FLY_API_TOKEN (org access token).
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_restart:
+        description: Use fly postgres restart --force if machine restarts fail
+        type: boolean
+        default: true
+      skip_api_verify:
+        description: Skip SSH verification on cli-market-api
+        type: boolean
+        default: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Diagnose cli-market-db
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -x
+          fly auth whoami
+          fly status --app cli-market-db || true
+          fly postgres list || true
+          fly machines list --app cli-market-db || true
+          fly volumes list --app cli-market-db || true
+          fly checks list --app cli-market-db || true
+          fly logs --app cli-market-db --no-tail 2>/dev/null | tail -60 || true
+
+      - name: Restart Postgres machines
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          ids="$(fly machines list --app cli-market-db --json 2>/dev/null | jq -r '.[].id' || true)"
+          if [[ -z "$ids" ]]; then
+            echo "No machines — will try postgres restart in next step"
+            exit 0
+          fi
+          for id in $ids; do
+            echo "Restarting $id"
+            fly machine restart "$id" --app cli-market-db
+          done
+
+      - name: Force postgres restart (fallback)
+        if: inputs.force_restart == true
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          fly postgres restart --app cli-market-db --force --skip-health-checks || true
+          sleep 30
+          fly status --app cli-market-db || true
+
+      - name: Verify Postgres connectivity
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          fly postgres connect --app cli-market-db -c "SELECT 1 AS ok" || {
+            echo "::error::Postgres still unreachable after recovery attempts"
+            exit 1
+          }
+
+      - name: Restart API app
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: fly apps restart --app cli-market-api
+
+      - name: Verify USE_PG on API
+        if: inputs.skip_api_verify != true
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          sleep 20
+          fly ssh console --app cli-market-api -C "python3 -c \"
+from market_core import USE_PG, recover_pg_if_needed
+recover_pg_if_needed()
+assert USE_PG, 'USE_PG is still False — check DATABASE_URL and PG leader'
+print('USE_PG OK')
+\""
+
+      - name: Smoke /health/db
+        run: |
+          curl -fsS https://cli-market-api.fly.dev/health/db
+          echo ""

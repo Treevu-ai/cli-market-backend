@@ -113,10 +113,14 @@ def health_db():
     except Exception as e:
         return {"backend": "error", "detail": f"DB connection failed: {e}"}
 
+    # USE_PG can be True while recover_pg_if_needed() races; the live connection
+    # is the source of truth for which SQL dialect to run.
+    using_pg = bool(getattr(db, "_pg", USE_PG))
+
     # Probe PG connectivity only when fallen back to SQLite, and cache the
     # result so repeated health polls never each block for connect_timeout.
     pg_error: str | None = None
-    if DATABASE_URL and not USE_PG:
+    if DATABASE_URL and not using_pg:
         now = time.monotonic()
         if _pg_probe_cache is None or (now - _pg_probe_cache[0]) > _PG_PROBE_TTL:
             try:
@@ -128,10 +132,10 @@ def health_db():
         pg_error = _pg_probe_cache[1] if _pg_probe_cache else None
 
     try:
-        db_type = "postgresql" if USE_PG else "sqlite"
+        db_type = "postgresql" if using_pg else "sqlite"
         # Fast approximate row count — O(log n) for SQLite (MAX(rowid)), and
         # a stats-table lookup for PG — avoids a full COUNT(*) sequential scan.
-        if USE_PG:
+        if using_pg:
             snap_row = db.execute(
                 """
                 SELECT reltuples::bigint AS n
@@ -145,7 +149,7 @@ def health_db():
             ).fetchone()
             snapshots = int(snap_row["n"]) if snap_row and snap_row["n"] else 0
 
-        if not USE_PG:
+        if not using_pg:
             tables = db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
             ).fetchall()
@@ -155,7 +159,7 @@ def health_db():
             ).fetchall()
 
         upsert_ready = None
-        if USE_PG:
+        if using_pg:
             try:
                 upsert_ready = bool(db.execute(
                     """
