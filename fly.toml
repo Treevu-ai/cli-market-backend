@@ -1,0 +1,59 @@
+# Fly.io config — CLI Market API service
+# Docs: https://fly.io/docs/reference/configuration/
+#
+# Deploy:
+#   fly apps create cli-market-api --org <org>
+#   fly postgres create --name cli-market-db --region gru
+#   fly postgres attach cli-market-db --app cli-market-api
+#   fly secrets set GITHUB_TOKEN=<PAT> CLI_MARKET_API_KEY=<key> --app cli-market-api
+#   fly deploy --app cli-market-api --config fly.toml
+
+app = "cli-market-api"
+primary_region = "gru"   # São Paulo — closest to PE/MX/CO/AR/CL
+
+[build]
+  dockerfile = "Dockerfile"
+
+  [build.args]
+    # Passed as --build-arg; set actual value via `fly secrets set GITHUB_TOKEN=...`
+    # Fly passes secrets as build args when referenced here.
+    GITHUB_TOKEN = ""
+
+[env]
+  MARKET_DATA_DIR = "/data"
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false   # API debe estar siempre up
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 200
+    soft_limit = 150
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[mounts]
+  source = "cli_market_data"
+  destination = "/data"
+
+[[services.tcp_checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
+
+[checks]
+  [checks.health]
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    port = 8080
+    timeout = "5s"
+    type = "http"
