@@ -33,6 +33,6 @@ primary_region = "gru"
 
 # Sin health checks HTTP — el collector no expone puerto
 # Fly reinicia automáticamente si el proceso muere
-[restart]
+[[restart]]
   policy = "always"
   max_retries = 5
