@@ -31,7 +31,9 @@ COPY ops/ ./ops/
 RUN mkdir -p /data
 ENV MARKET_DATA_DIR=/data
 
-EXPOSE 8765
+EXPOSE 8080
 
-# API only — collector runs as a separate Railway service (Dockerfile.collector)
-CMD ["sh", "-c", "python -m uvicorn market_server:app --host 0.0.0.0 --port $PORT"]
+# API only — collector runs as a separate service (Railway: Dockerfile.collector / Fly: fly.collector.toml)
+# PORT defaults to 8080 (Fly.io standard); Railway overrides it automatically
+ENV PORT=8080
+CMD ["python", "-m", "uvicorn", "market_server:app", "--host", "0.0.0.0", "--port", "8080"]
