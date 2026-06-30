@@ -53,5 +53,6 @@ def test_canasta_snapshot_finds_huevos(isolated_db):
 def test_canasta_name_sql_builds_or_clause():
     sql, params = _canasta_name_sql("azucar")
     assert "OR" in sql
-    assert "LOWER(name) LIKE LOWER(?)" in sql
+    # La implementación usa ILIKE (PostgreSQL nativo, case-insensitive)
+    assert "ILIKE" in sql
     assert "%azúcar%" in params
