@@ -99,16 +99,20 @@ def health():
 
 
 @router.get("/health/db")
-def health_db(db = Depends(get_db_dep)):
+def health_db():
     """Database backend diagnostic — confirms PG vs SQLite."""
     global _pg_probe_cache
     import market_core
-    # Throttled self-heal — no-op if called too recently (PG_RECOVERY_INTERVAL).
     try:
         market_core.recover_pg_if_needed()
     except Exception:
         pass
     from market_core import USE_PG, DATABASE_URL, DB_FILE
+    try:
+        from market_core import get_db
+        db = get_db()
+    except Exception as e:
+        return {"backend": "error", "detail": f"DB connection failed: {e}"}
 
     # Probe PG connectivity only when fallen back to SQLite, and cache the
     # result so repeated health polls never each block for connect_timeout.
@@ -355,19 +359,28 @@ def health_stores(country: str | None = None, db = Depends(get_db_dep)):
 
 
 @router.get("/health/stats")
-def health_stats(db = Depends(get_db_dep)):
+def health_stats():
     """Live KPIs for landing and ops — moat freshness, linkage %, scraping summary."""
     from market_core.health_stats import build_health_stats
+    from market_core import get_db
 
     registry_size = None
     try:
         from index_gate import registry_size as _registry_size
-
         registry_size = _registry_size()
     except Exception:
         pass
 
-    return build_health_stats(db, registry_size=registry_size)
+    try:
+        db = get_db()
+    except Exception as e:
+        return {"error": f"DB connection failed: {e}", "status": "degraded"}
+
+    try:
+        return build_health_stats(db, registry_size=registry_size)
+    except Exception as e:
+        logger.error("health_stats build failed: %s", e)
+        return {"error": str(e), "status": "degraded"}
 
 
 @router.get("/")
