@@ -177,7 +177,7 @@ def health_db():
         return {
             "backend": db_type,
             "database_url_set": bool(DATABASE_URL),
-            "db_file": str(DB_FILE) if not USE_PG else None,
+            "db_file": str(DB_FILE) if not using_pg else None,
             "snapshots": snapshots,
             "price_snapshots_upsert_ready": upsert_ready,
             "tables": [t["name"] for t in tables],
@@ -185,6 +185,8 @@ def health_db():
         }
     except Exception as e:
         return {"backend": "error", "detail": str(e)}
+    finally:
+        db.close()
 
 
 @router.get("/health/collector")
@@ -383,6 +385,8 @@ def health_stats():
     except Exception as e:
         logger.error("health_stats build failed: %s", e)
         return {"error": str(e), "status": "degraded"}
+    finally:
+        db.close()
 
 
 @router.get("/")
