@@ -36,7 +36,7 @@ def req(method: str, path: str, body: dict | None = None, api_key: str = "") -> 
         h["Content-Type"] = "application/json"
     r = urllib.request.Request(f"{BASE}{path}", data=data, headers=h, method=method)
     try:
-        with urllib.request.urlopen(r, timeout=30) as resp:
+        with urllib.request.urlopen(r, timeout=90) as resp:
             raw = resp.read().decode()
             return resp.status, json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
