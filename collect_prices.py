@@ -158,6 +158,12 @@ STORE_QUERY_OVERRIDES: dict[str, list[tuple[str, str]]] = {
         ("celular", "departamentales"), ("tablet", "departamentales"),
     ],
     # xray_pe removed 2026-06-24: 64 consecutive DNS failures, unrecoverable
+    "lasirena_es": [
+        ("salmón", "supermercados"), ("merluza", "supermercados"), ("pollo", "supermercados"),
+        ("congelados", "supermercados"), ("pescado", "supermercados"), ("gambas", "supermercados"),
+        ("croquetas", "supermercados"), ("verduras", "supermercados"), ("pizza", "supermercados"),
+        ("leche", "supermercados"), ("arroz", "supermercados"), ("aceite", "supermercados"),
+    ],
 }
 
 
