@@ -109,7 +109,6 @@ def health_db():
         pass
     from market_core import USE_PG, DATABASE_URL, DB_FILE
     try:
-        from market_core import get_db
         db = get_db()
     except Exception as e:
         return {"backend": "error", "detail": f"DB connection failed: {e}"}
@@ -362,7 +361,6 @@ def health_stores(country: str | None = None, db = Depends(get_db_dep)):
 def health_stats():
     """Live KPIs for landing and ops — moat freshness, linkage %, scraping summary."""
     from market_core.health_stats import build_health_stats
-    from market_core import get_db
 
     registry_size = None
     try:
