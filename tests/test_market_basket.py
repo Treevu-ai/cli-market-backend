@@ -9,6 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from market_core.market_basket import _canasta_name_sql, build_canasta_snapshot
+from market_core.market_db import name_like_clause
 from market_spread import CANASTA_SQL_LIKE, matches_canasta_item
 
 
@@ -53,6 +54,7 @@ def test_canasta_snapshot_finds_huevos(isolated_db):
 def test_canasta_name_sql_builds_or_clause():
     sql, params = _canasta_name_sql("azucar")
     assert "OR" in sql
-    # La implementación usa ILIKE (PostgreSQL nativo, case-insensitive)
-    assert "ILIKE" in sql
+    # name_like_clause() returns the correct clause for the active backend:
+    # ILIKE on PostgreSQL, LOWER(name) LIKE LOWER(?) on SQLite.
+    assert name_like_clause() in sql
     assert "%azúcar%" in params
