@@ -111,9 +111,10 @@ def test_dropoff_summary_and_endpoint():
 
 def test_pam_journey_synthetic():
     """PAM tier 1.5 — market init path: register → whoami → search → account."""
-    reg = client.post("/auth/register")
-    assert reg.status_code == 200
-    key = reg.json()["api_key"]
+    from tests.auth_test_utils import complete_registration
+
+    reg = complete_registration(client)
+    key = reg["api_key"]
     headers = {"Authorization": f"Bearer {key}"}
 
     who = client.get("/auth/whoami", headers=headers)
