@@ -39,6 +39,7 @@ from store_credentials import get_store_profile, store_exists
 from server_deps import get_db_dep, require_api_key
 from index_gate import enrich_list
 from market_core.market_action_links import retailer_deeplink
+from market_core.market_basket import build_basket_compare
 from market_core.market_food_match import matches_food_basket_query
 from market_core.market_units import price_per_base_unit
 from http_retry import request_with_retry
@@ -165,6 +166,8 @@ class BasketRequest(BaseModel):
     line: str | None = None
     country: str | None = None
     include_action_links: bool = False
+    include_tco: bool = False
+    include_delivery: bool = True
 
 
 @router.post("/products/search")
@@ -486,6 +489,36 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
         cc = body.country.strip().upper()
         stores = [s for s in stores if STORES.get(s, {}).get("country") == cc]
 
+    if body.include_tco:
+        # include_tco/include_delivery were accepted by this request model
+        # but never wired to anything — pydantic silently dropped them and
+        # --tco had no effect (cli-market-backend#130). market_core's
+        # build_basket_compare already has real TCO math (market_tco.py) and
+        # delivery-quote simulation; the live per-store resolver above never
+        # grew that logic. It reads price_snapshots (indexed catalog)
+        # instead of live store APIs for item pricing, so it can be a few
+        # hours behind live — surfaced explicitly via data_freshness/
+        # data_age_hours on each store row rather than labeled "live" like
+        # the default path (AGENTS.md data-gate: don't present stale moat
+        # data as fresh). TCO/delivery numbers themselves are computed live
+        # (simulate_delivery_quote hits the delivery API first, falls back
+        # to static defaults only if that fails).
+        db = get_db()
+        try:
+            result = build_basket_compare(
+                db,
+                items=body.items,
+                store_filter=set(stores) if stores else None,
+                include_tco=True,
+                include_delivery=body.include_delivery,
+                include_action_links=body.include_action_links,
+                country=body.country,
+            )
+        finally:
+            db.close()
+        result["source"] = "snapshot"
+        return result
+
     parallel_batch = int(os.getenv("BASKET_PARALLEL_BATCH", "8"))
     timeout_s = float(os.getenv("BASKET_TIMEOUT", "25.0"))
     results: dict[str, dict] = {}
@@ -674,7 +707,18 @@ def enrich_products(query: str, limit: int = 5, authorization: str | None = Head
 
 @router.get("/categories/{store}")
 async def categories(store: str, authorization: str | None = Header(None)):
-    """VTEX category tree (depth 10) for a store."""
+    """VTEX category tree (depth 10) for a store.
+
+    This is a raw pass-through of the retailer's own live catalog
+    structure — it is NOT cross-referenced against price_snapshots, so a
+    category can appear here (or appear empty/with 0 subcategories) with no
+    relation to what CLI Market has actually indexed and can search/compare
+    (cli-market-backend#127/#135: Olímpica's tree had no grocery category at
+    all despite search returning grocery results; Carrefour AR's tree had
+    entire branches — carnes, frutas, congelados — with 0 populated
+    subcategories). Use `market search`/`market discover` to check real
+    product availability, not this endpoint.
+    """
     require_api_key(authorization)
     base = STORES.get(store, {}).get("base", "")
     if not base:
@@ -682,4 +726,14 @@ async def categories(store: str, authorization: str | None = Header(None)):
     url = f"{base}/api/catalog_system/pub/category/tree/10"
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(url)
-        return resp.json()
+        tree = resp.json()
+    return {
+        "store": store,
+        "categories": tree,
+        "disclaimer": (
+            "Árbol de categorías en vivo de la tienda (VTEX) — no está sincronizado con el catálogo "
+            "indexado por CLI Market. Una categoría puede aparecer vacía o ausente aquí sin relación "
+            "con la disponibilidad real de productos. Usá market search / market discover para "
+            "verificar disponibilidad real."
+        ),
+    }
