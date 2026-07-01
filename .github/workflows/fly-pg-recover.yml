@@ -66,7 +66,7 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          echo "SELECT 1 AS ok;" | timeout 60 flyctl postgres connect --app cli-market-db || {
+          echo "SELECT 1 AS ok;" | timeout -k 10 60 flyctl postgres connect --app cli-market-db || {
             echo "::error::Postgres still unreachable after recovery attempts"
             exit 1
           }
