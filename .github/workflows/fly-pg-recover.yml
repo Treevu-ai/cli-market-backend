@@ -83,11 +83,11 @@ jobs:
         run: |
           sleep 20
           fly ssh console --app cli-market-api -C "python3 -c \"
-from market_core import USE_PG, recover_pg_if_needed
-recover_pg_if_needed()
-assert USE_PG, 'USE_PG is still False — check DATABASE_URL and PG leader'
-print('USE_PG OK')
-\""
+          from market_core import USE_PG, recover_pg_if_needed
+          recover_pg_if_needed()
+          assert USE_PG, 'USE_PG is still False — check DATABASE_URL and PG leader'
+          print('USE_PG OK')
+          \""
 
       - name: Smoke /health/db
         run: |
