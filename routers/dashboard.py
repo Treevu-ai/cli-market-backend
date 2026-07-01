@@ -738,12 +738,17 @@ def _dashboard_data():
     _line_name_map = {(r["line"], r["currency"]): r.get("line_name") for r in by_line_currency}
     inflation = []
     for r in inflation_rows:
-        r_avg = round(float(r["avg_recent"] or 0), 2)
-        o_avg = round(float(r["avg_older"] or 0), 2)
+        r_avg_raw = float(r["avg_recent"] or 0)
+        o_avg_raw = float(r["avg_older"] or 0)
         # No price data in the older window means there's no baseline to
         # compare against — report null, not a fabricated "+0.0%" (which
         # reads as "unchanged" instead of "just started being tracked").
-        delta = round((r_avg - o_avg) / o_avg * 100, 1) if o_avg > 0 else None
+        # Use the unrounded average for the baseline check and the delta
+        # division so a tiny-but-real avg_older (e.g. 0.003) isn't rounded
+        # down to 0.00 and misclassified as "no baseline".
+        delta = round((r_avg_raw - o_avg_raw) / o_avg_raw * 100, 1) if o_avg_raw > 0 else None
+        r_avg = round(r_avg_raw, 2)
+        o_avg = round(o_avg_raw, 2)
         cur = r["currency"] or ""
         line_key = r["line"] or ""
         inflation.append({
