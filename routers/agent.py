@@ -24,7 +24,8 @@ import httpx
 from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
-from market_core import STORES, db_get_orders, get_default_stores
+from market_core import COUNTRIES, STORES, db_get_orders, get_default_stores
+from market_core.market_food_match import infer_staple_from_query
 from server_deps import require_api_key
 
 logger = logging.getLogger("market.server").getChild("agent")
@@ -297,9 +298,42 @@ async def _run_agent(prompt: str, country: str | None) -> dict:
 
 # ── Regex fallback (original behavior) ──────────────────────────────────────
 
+def _detect_country_hint(p: str) -> str | None:
+    """Best-effort ISO country code from a country name mentioned in the
+    prompt (e.g. "en argentina" -> "AR"). Deliberately does NOT match bare
+    2-letter ISO codes as standalone tokens — "es" (Spain) collides with the
+    common Spanish word "es" ("cual es el precio..." falsely matched Spain
+    before this fix), and similar collisions are likely for other codes.
+    """
+    for cc, info in COUNTRIES.items():
+        name = str(info.get("name") or "").lower()
+        if name and name in p:
+            return cc
+    return None
+
+
+def _extract_product_query(p: str) -> str:
+    """Best-effort product term from a free-text question, when no
+    action-keyword branch matched below.
+
+    Without ANTHROPIC_API_KEY this is the only NLU this endpoint has, and
+    forwarding the full literal sentence (e.g. "donde compro leche mas
+    barata en argentina") as a product search query always returns zero
+    results — the CLI/agent never sees a real intent (cli-market-backend#127
+    ask O3 finding). infer_staple_from_query already extracts a clean
+    canasta staple ("leche") from free text elsewhere in the moat; reuse it
+    here as a first pass before falling back to the raw prompt.
+    """
+    staple = infer_staple_from_query(p)
+    if staple:
+        return staple
+    return p
+
+
 def _regex_fallback(prompt: str) -> dict:
     import re as _re
     p = prompt.lower().strip()
+    country_hint = _detect_country_hint(p)
     if any(w in p for w in ("compra", "comprar", "agregar", "add")):
         words = _re.sub(r"[^a-záéíóúñ ]", "", p).split()
         qty = next((int(w) for w in words if w.isdigit()), 1)
@@ -307,17 +341,22 @@ def _regex_fallback(prompt: str) -> dict:
             p.replace("compra", "").replace("comprar", "")
             .replace("agrega", "").replace("agregar", "").replace("add", "").strip()
         )
-        return {"action": "search", "query": query, "quantity": qty, "message": f"Buscando '{query}'..."}
-    if any(w in p for w in ("repite", "repetir", "reorder")):
+        result = {"action": "search", "query": query, "quantity": qty, "message": f"Buscando '{query}'..."}
+    elif any(w in p for w in ("repite", "repetir", "reorder")):
         return {"action": "reorder", "message": "Repitiendo última orden..."}
-    if any(w in p for w in ("compara", "comparar", "compare")):
+    elif any(w in p for w in ("compara", "comparar", "compare")):
         query = p.replace("compara", "").replace("comparar", "").replace("compare", "").strip()
-        return {"action": "compare", "query": query, "message": f"Comparando '{query}'..."}
-    if any(w in p for w in ("carrito", "cart", "ver")):
+        result = {"action": "compare", "query": query, "message": f"Comparando '{query}'..."}
+    elif any(w in p for w in ("carrito", "cart", "ver")):
         return {"action": "cart", "message": "Mostrando carrito..."}
-    if any(w in p for w in ("pagar", "checkout", "finalizar")):
+    elif any(w in p for w in ("pagar", "checkout", "finalizar")):
         return {"action": "checkout", "message": "Iniciando checkout..."}
-    return {"action": "search", "query": prompt, "quantity": 1, "message": f"Buscando '{prompt}'..."}
+    else:
+        query = _extract_product_query(p)
+        result = {"action": "search", "query": query, "quantity": 1, "message": f"Buscando '{query}'..."}
+    if country_hint:
+        result["country"] = country_hint
+    return result
 
 
 # ── Request / response models ────────────────────────────────────────────────

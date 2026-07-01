@@ -601,9 +601,19 @@ def product_delivery(product_id: str, store: str, zipcode: str = ""):
 @router.get("/products/barcode/{code}")
 def barcode_lookup(code: str):
     """OpenFoodFacts barcode → product metadata."""
-    r = request_with_retry(
-        "GET", f"https://world.openfoodfacts.org/api/v2/product/{code}.json", timeout=10
-    )
+    if not code.strip().isdigit() or not (8 <= len(code.strip()) <= 14):
+        # EAN-8/12/13/14 are the only formats OFF indexes by barcode — catch
+        # this before hitting the network so the CLI can point the user at
+        # search instead of the generic "not found" hint (O6,
+        # cli-market-backend#127).
+        return {"code": code, "error": "invalid barcode format", "status": 400}
+    try:
+        r = request_with_retry(
+            "GET", f"https://world.openfoodfacts.org/api/v2/product/{code}.json", timeout=10
+        )
+    except httpx.RequestError as e:
+        logger.warning("barcode lookup network failure for %s: %s", code, e)
+        return {"code": code, "error": f"network error contacting Open Food Facts ({type(e).__name__})", "status": 503}
     if r.status_code == 200:
         product = r.json().get("product", {})
         return {
@@ -613,7 +623,7 @@ def barcode_lookup(code: str):
             "nutriscore": product.get("nutriscore_grade", "").upper(),
             "categories": product.get("categories", ""),
         }
-    return {"code": code, "error": "not found"}
+    return {"code": code, "error": "not found", "status": 404}
 
 
 @router.get("/products/enrich")
