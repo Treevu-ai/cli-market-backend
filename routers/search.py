@@ -37,7 +37,8 @@ from market_core import (
 )
 from store_credentials import get_store_profile, store_exists
 from server_deps import get_db_dep, require_api_key
-from index_gate import enrich_list, infer_category
+from index_gate import enrich_list
+from market_core.market_food_match import matches_food_basket_query
 from http_retry import request_with_retry
 
 logger = logging.getLogger("market.server").getChild("search")
@@ -389,7 +390,6 @@ async def _fetch_basket_store(
             if not raw:
                 return None
             q_tokens = _query_tokens(item["name"])
-            q_category = infer_category(item["name"])
             candidates: list[dict] = []
             for p in raw:
                 try:
@@ -397,7 +397,16 @@ async def _fetch_basket_store(
                     name = prod.get("name", "")
                     if q_tokens and not _is_relevant(name, q_tokens, require_all=True):
                         continue
-                    if q_category and infer_category(name) != q_category:
+                    # Word-boundary token matching alone lets candy/condiment
+                    # products slip through when the staple word appears in
+                    # their name (e.g. "Chocolate con Leche", "Sazonador sabor
+                    # Arroz") — infer_category's staple-equality check never
+                    # caught this because its taxonomy dependency was missing
+                    # and it silently no-opped. matches_food_basket_query
+                    # applies the same staple-exclusion list already used
+                    # elsewhere in the moat (cli-market-backend#127 basket
+                    # matching investigation).
+                    if not matches_food_basket_query(item["name"], {"name": name, "line": "supermercados"}):
                         continue
                     candidates.append(prod)
                 except Exception:

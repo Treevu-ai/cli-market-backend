@@ -10,6 +10,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from market_core.market_food_match import matches_food_basket_query
 from routers.search import _is_relevant, _query_tokens
 
 
@@ -48,3 +49,22 @@ def test_word_boundary_prevents_prefix_false_positive():
 def test_empty_tokens_matches_everything():
     assert _is_relevant("Cualquier Producto", []) is True
     assert _is_relevant("Cualquier Producto", [], require_all=True) is True
+
+
+def test_basket_resolver_uses_staple_exclusion_not_word_match_alone():
+    """Regression for cli-market-backend#127: _fetch_basket_store used to gate
+    candidates with infer_category(), whose taxonomy.canasta dependency was
+    missing from this deployment — the import silently failed, disabling the
+    category guard entirely and leaving _is_relevant's plain word-boundary
+    match as the only filter, which a chocolate bar named "... con Leche"
+    satisfies just as well as real milk. The resolver now calls
+    matches_food_basket_query(), which enforces the real staple/exclusion
+    taxonomy regardless of the word match.
+    """
+    # Passes _is_relevant's word-boundary check (contains "leche") but must
+    # still be rejected as a "leche" canasta match.
+    assert _is_relevant("Chocolate con Leche Sublime 90g", ["leche"], require_all=True) is True
+    assert matches_food_basket_query("leche", {"name": "Chocolate con Leche Sublime 90g", "line": "supermercados"}) is False
+    # A real milk product passes both.
+    assert _is_relevant("Leche Descremada La Serenisima 1L", ["leche"], require_all=True) is True
+    assert matches_food_basket_query("leche", {"name": "Leche Descremada La Serenisima 1L", "line": "supermercados"}) is True
