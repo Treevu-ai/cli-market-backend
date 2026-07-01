@@ -630,11 +630,32 @@ def barcode_lookup(code: str):
 def enrich_products(query: str, limit: int = 5, authorization: str | None = Header(None)):
     """OpenFoodFacts text search."""
     require_api_key(authorization)
-    r = request_with_retry(
-        "GET",
-        f"https://world.openfoodfacts.org/cgi/search.pl?search_terms={query}&json=1&page_size={limit}",
-        timeout=10,
-    )
+    try:
+        r = request_with_retry(
+            "GET",
+            "https://world.openfoodfacts.org/cgi/search.pl",
+            params={
+                "search_terms": query,
+                # Raw string concatenation used to build the URL here
+                # (f"...search_terms={query}...") instead of a proper params
+                # dict — query characters like & or # could break the query
+                # string structure. search_simple/action match the params
+                # market_core.market_enrich_sources.fetch_off_by_search
+                # already uses (cli-market-backend#132, T1/O-enrich finding).
+                "search_simple": 1,
+                "action": "process",
+                "json": 1,
+                "page_size": limit,
+            },
+            timeout=10,
+        )
+    except httpx.RequestError as e:
+        # Previously any network failure fell through to `return {"results":
+        # [], "total": 0}` below with a 200 status — the CLI read that as a
+        # genuine "0 results" and exited 0, hiding that OFF was actually
+        # unreachable ("El exit code es 0 — el sistema cree que funcionó").
+        logger.warning("OFF enrich search failed for %r: %s", query, e)
+        raise HTTPException(status_code=503, detail=f"Open Food Facts unreachable ({type(e).__name__})")
     if r.status_code == 200:
         products = r.json().get("products", [])
         results = []
