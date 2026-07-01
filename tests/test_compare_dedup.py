@@ -29,10 +29,10 @@ def two_stores(monkeypatch):
         # AR reproduction: word order + accent differences.
         raw = {
             "carrefour_ar": [
-                {"id": "679541", "name": "Leche entera La Serenísima tetra 200cc", "brand": "La Serenisima", "price": 500.0},
+                {"id": "679541", "name": "Leche entera La Serenísima tetra 200cc", "brand": "La Serenisima", "price": 500.0, "line": "supermercados"},
             ],
             "vea_ar": [
-                {"id": "21110102069", "name": "Leche La Serenisima Entera 200cc", "brand": "La Serenisima", "price": 480.0},
+                {"id": "21110102069", "name": "Leche La Serenisima Entera 200cc", "brand": "La Serenisima", "price": 480.0, "line": "supermercados"},
             ],
         }
         return raw, []

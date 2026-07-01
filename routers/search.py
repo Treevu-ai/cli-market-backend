@@ -40,7 +40,7 @@ from server_deps import get_db_dep, require_api_key
 from index_gate import enrich_list
 from market_core.market_action_links import retailer_deeplink
 from market_core.market_basket import build_basket_compare
-from market_core.market_food_match import matches_food_basket_query
+from market_core.market_food_match import infer_staple_from_query, matches_food_basket_query
 from market_core.market_units import price_per_base_unit
 from http_retry import request_with_retry
 
@@ -308,14 +308,31 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
 
     q_tokens = _query_tokens(body.query)
 
+    # _is_relevant alone is a plain OR word-boundary match — for a canasta
+    # staple query like "arroz" it accepts vinegar, crackers, flour, or
+    # infant cereal that happen to have the word "arroz" in the name, none
+    # of which are the requested staple (cli-market-backend#127 N1: compare
+    # "arroz" listed vinagre de arroz, harina de arroz, galletas de arroz,
+    # Nestum Arroz alongside real rice). Only gate on the stricter
+    # exclusion-aware staple matcher when the query is confidently a known
+    # canasta staple — matches_food_basket_query's generic (non-staple)
+    # fallback path requires ALL tokens (AND), which would wrongly tighten
+    # matching for ordinary multi-word compare searches unrelated to any
+    # staple.
+    is_staple_query = infer_staple_from_query(body.query) is not None
+
     all_products = {}
     for s, raw in all_raw.items():
         all_products[s] = []
         for p in raw:
             try:
                 prod = product_from_json(p, s)
-                if not q_tokens or _is_relevant(prod.get("name", ""), q_tokens):
-                    all_products[s].append(prod)
+                name = prod.get("name", "")
+                if q_tokens and not _is_relevant(name, q_tokens):
+                    continue
+                if is_staple_query and not matches_food_basket_query(body.query, {"name": name, "line": prod.get("line", "")}):
+                    continue
+                all_products[s].append(prod)
             except Exception:
                 logger.debug("product_from_json failed for store=%s", s, exc_info=True)
 
