@@ -1,6 +1,7 @@
 """Pepy.tech PyPI stats integration."""
 
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,10 +30,20 @@ MOCK_PEPY = {
 def test_pepy_summary(mock_fetch):
     from market_pepy import pepy_summary
 
+    today = date.today()
+    mock_pepy = {
+        **MOCK_PEPY,
+        "downloads": {
+            (today - timedelta(days=29)).isoformat(): {"1.9.4": 100, "1.6.0": 50},
+            (today - timedelta(days=25)).isoformat(): {"1.9.4": 200},
+            today.isoformat(): {"1.9.4": 40},
+        },
+    }
+
     def side_effect(path: str):
         if "service-api" in path:
             return {"downloads": {"2026-06-06": {"1.9.4": 150}}}
-        return MOCK_PEPY
+        return mock_pepy
 
     mock_fetch.side_effect = side_effect
     import market_pepy as mp
