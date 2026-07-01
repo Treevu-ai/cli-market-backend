@@ -38,6 +38,7 @@ from market_core import (
 from store_credentials import get_store_profile, store_exists
 from server_deps import get_db_dep, require_api_key
 from index_gate import enrich_list
+from market_core.market_action_links import retailer_deeplink
 from market_core.market_food_match import matches_food_basket_query
 from http_retry import request_with_retry
 
@@ -162,6 +163,7 @@ class BasketRequest(BaseModel):
     stores: list[str] | None = None
     line: str | None = None
     country: str | None = None
+    include_action_links: bool = False
 
 
 @router.post("/products/search")
@@ -489,7 +491,8 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
         enrich_list(store_data["items"], store_key=store_data.get("store_name", ""))
     # ───────────────────
     best = min(results, key=lambda s: results[s]["total"]) if results else None
-    return {
+
+    payload: dict = {
         "source": "live",
         "basket": body.items,
         "comparison": results,
@@ -497,6 +500,18 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
         "best_total": results[best]["total"] if best else None,
         "stores_compared": len(results),
     }
+    if body.include_action_links and best and body.items:
+        # BasketRequest never declared this field before, so pydantic silently
+        # dropped it and the CLI's --action-links flag had no effect at all
+        # (cli-market-world#466). Minimal fix: a search-mode deeplink into the
+        # winning store for the first requested item — not the full
+        # product-level/handoff action-link set market_core.market_action_links
+        # supports, which needs per-item product_id/db context this endpoint
+        # doesn't track today.
+        first_item_name = str(body.items[0].get("name") or "")
+        link = retailer_deeplink(best, name=first_item_name) if first_item_name else None
+        payload["action_links"] = [link] if link else []
+    return payload
 
 
 @router.get("/products/stock/{product_id}")
