@@ -40,6 +40,7 @@ from server_deps import get_db_dep, require_api_key
 from index_gate import enrich_list
 from market_core.market_action_links import retailer_deeplink
 from market_core.market_food_match import matches_food_basket_query
+from market_core.market_units import price_per_base_unit
 from http_retry import request_with_retry
 
 logger = logging.getLogger("market.server").getChild("search")
@@ -349,6 +350,14 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
                 if best_score >= FUZZY_THRESHOLD and best_kb:
                     key_index[ka][sb] = key_index[best_kb][sb]
                     matched_b.add(best_kb)
+                    # A successful merge folds best_kb's entry into ka — drop
+                    # the original key_index[best_kb] or the same physical
+                    # product shows up twice in the final comparison: once
+                    # under ka (now with both stores) and once orphaned under
+                    # its original key (cli-market-world#... AR duplicate
+                    # rows finding, e.g. "Leche entera La Serenísima" listed
+                    # separately per store despite a successful fuzzy match).
+                    del key_index[best_kb]
 
     comparison: list[dict] = []
     for _k, sp in key_index.items():
@@ -357,11 +366,25 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
             if prices:
                 best = min(prices, key=prices.get)
                 rep = sp[list(sp.keys())[0]]
+                # Per-store price-per-unit (kg/L) so pack-size mismatches
+                # between stores (e.g. 200cc vs 1L vs 400g powder) are
+                # visible instead of comparing raw prices across different
+                # units — the "normalizado kg/L" footer claimed this but
+                # compare never actually computed it (cli-market-world#...
+                # search/compare/enrich AR/CO findings).
+                prices_per_unit = {}
+                for s, p in sp.items():
+                    if p["price"] <= 0:
+                        continue
+                    ppu = price_per_base_unit(p["price"], p["name"])
+                    if ppu:
+                        prices_per_unit[s] = ppu
                 comparison.append(
                     {
                         "name": rep["name"],
                         "brand": rep["brand"],
                         "prices": prices,
+                        "prices_per_unit": prices_per_unit,
                         "best_store": best,
                         "best_price": prices[best],
                     }
