@@ -740,7 +740,10 @@ def _dashboard_data():
     for r in inflation_rows:
         r_avg = round(float(r["avg_recent"] or 0), 2)
         o_avg = round(float(r["avg_older"] or 0), 2)
-        delta = round((r_avg - o_avg) / o_avg * 100, 1) if o_avg > 0 else 0
+        # No price data in the older window means there's no baseline to
+        # compare against — report null, not a fabricated "+0.0%" (which
+        # reads as "unchanged" instead of "just started being tracked").
+        delta = round((r_avg - o_avg) / o_avg * 100, 1) if o_avg > 0 else None
         cur = r["currency"] or ""
         line_key = r["line"] or ""
         inflation.append({
