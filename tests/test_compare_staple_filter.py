@@ -41,17 +41,8 @@ def test_compare_staple_query_excludes_derived_products(ar_store):
 
     names = {c["name"] for c in result["comparison"]}
     assert "Arroz Lucchetti Largo Fino 500g" in names
-    # "vinagre" was already excluded before this session's cli-market-core
-    # changes — asserted unconditionally.
     assert "Vinagre de Arroz Kikkoman 500ml" not in names
-    # "nestum" was added to the exclusion list in cli-market-core#136,
-    # merged in source but not yet published to PyPI past 1.11.13 (this
-    # environment's pinned version) — xfail instead of a hard assertion so
-    # CI stays green until the release ships, then flip to a normal assert.
-    nestum_excluded = "Nestum Arroz Cereal Infantil 250g" not in names
-    if not nestum_excluded:
-        pytest.xfail("cli-market-core's nestum exclusion (#136) not yet published to PyPI")
-    assert nestum_excluded
+    assert "Nestum Arroz Cereal Infantil 250g" not in names
 
 
 def test_compare_non_staple_query_unaffected(ar_store, monkeypatch):
