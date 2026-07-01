@@ -83,22 +83,31 @@ def inflation_tracker(
         return cached
     """Compute per-product price deltas within the last `days` window.
 
-    Compares earliest vs latest snapshot per product name in the window.
+    Compares earliest vs latest recorded point per product in the window.
+    Reads price_history (append-only, one row per price *change*) joined
+    with price_snapshots for display metadata — not price_snapshots alone,
+    which is upserted one-row-per-(product_id, store) and can therefore
+    never hold two distinct points in time for the same product (see
+    cli-market-backend#127).
+
     Intended for agent-facing inflation signals — not official CPI indices.
     """
     since = _since_iso(days)
-    q = (
-        "SELECT product_id, name, store, store_name, currency, price, queried_at "
-        "FROM price_snapshots WHERE price > 0 AND queried_at >= ?"
-    )
+    q = """
+        SELECT ph.product_id, ph.store, ph.price, ph.recorded_at,
+               ps.name, ps.store_name, ps.currency, ps.line
+        FROM price_history ph
+        LEFT JOIN price_snapshots ps ON ps.product_id = ph.product_id AND ps.store = ph.store
+        WHERE ph.price > 0 AND ph.recorded_at >= ?
+    """
     params: list = [since]
     if country:
         cc_stores = [k for k, v in STORES.items() if v["country"] == country.upper() and not v.get("disabled")]
         if cc_stores:
-            q += f" AND store IN ({','.join('?' * len(cc_stores))})"
+            q += f" AND ph.store IN ({','.join('?' * len(cc_stores))})"
             params.extend(cc_stores)
     if line:
-        q += " AND line = ?"
+        q += " AND ps.line = ?"
         params.append(line)
     # No inner LIMIT — we need the full window to find earliest+latest per product.
     # The outer items[:limit] caps the response size.
@@ -106,7 +115,7 @@ def inflation_tracker(
 
     prods: dict[str, list[dict]] = {}
     for r in rows:
-        name = r["name"]
+        name = r["name"] or ""
         pid = r["product_id"]
         # Normalize to price-per-base-unit so pack-size changes don't appear as inflation.
         ppu = price_per_base_unit(r["price"], name)
@@ -120,7 +129,7 @@ def inflation_tracker(
                 "price": normalized_price,
                 "raw_price": r["price"],
                 "basis": basis,
-                "date": r["queried_at"],
+                "date": r["recorded_at"],
                 "store": r["store_name"],
                 "currency": r["currency"],
                 "name": name,
