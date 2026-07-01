@@ -674,7 +674,18 @@ def enrich_products(query: str, limit: int = 5, authorization: str | None = Head
 
 @router.get("/categories/{store}")
 async def categories(store: str, authorization: str | None = Header(None)):
-    """VTEX category tree (depth 10) for a store."""
+    """VTEX category tree (depth 10) for a store.
+
+    This is a raw pass-through of the retailer's own live catalog
+    structure — it is NOT cross-referenced against price_snapshots, so a
+    category can appear here (or appear empty/with 0 subcategories) with no
+    relation to what CLI Market has actually indexed and can search/compare
+    (cli-market-backend#127/#135: Olímpica's tree had no grocery category at
+    all despite search returning grocery results; Carrefour AR's tree had
+    entire branches — carnes, frutas, congelados — with 0 populated
+    subcategories). Use `market search`/`market discover` to check real
+    product availability, not this endpoint.
+    """
     require_api_key(authorization)
     base = STORES.get(store, {}).get("base", "")
     if not base:
@@ -682,4 +693,14 @@ async def categories(store: str, authorization: str | None = Header(None)):
     url = f"{base}/api/catalog_system/pub/category/tree/10"
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(url)
-        return resp.json()
+        tree = resp.json()
+    return {
+        "store": store,
+        "categories": tree,
+        "disclaimer": (
+            "Árbol de categorías en vivo de la tienda (VTEX) — no está sincronizado con el catálogo "
+            "indexado por CLI Market. Una categoría puede aparecer vacía o ausente aquí sin relación "
+            "con la disponibilidad real de productos. Usá market search / market discover para "
+            "verificar disponibilidad real."
+        ),
+    }
