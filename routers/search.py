@@ -215,8 +215,10 @@ async def _parallel_fetch_stores(
 
     async def fetch_one(store: str):
         try:
-            raw = await fetch_store(store, query, page, limit)
+            raw = await asyncio.wait_for(fetch_store(store, query, page, limit), timeout=timeout_s)
             return store, raw, None
+        except asyncio.TimeoutError:
+            return store, [], "timeout"
         except Exception as e:
             return store, [], str(e)
 
@@ -224,10 +226,7 @@ async def _parallel_fetch_stores(
         batch = stores[i : i + parallel_batch]
         batch_tasks = [fetch_one(s) for s in batch]
         try:
-            batch_results = await asyncio.wait_for(asyncio.gather(*batch_tasks), timeout=timeout_s)
-        except asyncio.TimeoutError:
-            errors.extend({"store": s, "error": "timeout"} for s in batch)
-            break
+            batch_results = await asyncio.gather(*batch_tasks)
         except Exception as e:
             logger.error("Fetch batch error: %s", e)
             errors.append({"store": "batch", "error": str(e)})
