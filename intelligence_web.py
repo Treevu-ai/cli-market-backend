@@ -37,7 +37,7 @@ def render_commerce_pulse_page(
     pulse: dict[str, Any],
     *,
     embed: bool = False,
-    api_base: str = "https://cli-market-production.up.railway.app",
+    api_base: str = "https://cli-market-api.fly.dev",
 ) -> str:
     """Dark-terminal HTML for /intelligence and /embed/commerce-pulse."""
     vm = pulse_view_model(pulse)
@@ -162,7 +162,7 @@ def render_commerce_pulse_page(
 </html>"""
 
 
-def embed_snippet_for_homepage(api_base: str = "https://cli-market-production.up.railway.app") -> str:
+def embed_snippet_for_homepage(api_base: str = "https://cli-market-api.fly.dev") -> str:
     """Copy-paste snippet for cli-market.dev homepage maintainers."""
     return f"""<!-- CLI Market — This Week in LatAm Commerce embed -->
 <section id="cli-market-intelligence" style="margin:48px auto;max-width:960px;padding:0 16px">

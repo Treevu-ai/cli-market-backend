@@ -13,7 +13,7 @@ from server_deps import check_rate_limit
 
 router = APIRouter(tags=["intelligence-web"])
 
-_API_BASE = os.getenv("MARKET_API_URL", "https://cli-market-production.up.railway.app").rstrip("/")
+_API_BASE = os.getenv("MARKET_API_URL", "https://cli-market-api.fly.dev").rstrip("/")
 _PULSE_TTL = int(os.getenv("PUBLIC_PULSE_CACHE_TTL", "3600"))
 _pulse_cache: dict[str, dict] = {}
 
