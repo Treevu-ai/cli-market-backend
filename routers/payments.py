@@ -491,7 +491,7 @@ async def paypal_status(test: bool = False):
         "webhook_configured": bool(os.getenv("PAYPAL_WEBHOOK_ID", "")),
         "plan_id_configured": bool(os.getenv("PAYPAL_PLAN_ID", "")),
         "api_url": "https://api-m.sandbox.paypal.com" if sandbox else "https://api-m.paypal.com",
-        "webhook_url": "https://cli-market-production.up.railway.app/checkout/paypal-webhook",
+        "webhook_url": f"{os.getenv('MARKET_API_URL', 'https://cli-market-api.fly.dev').rstrip('/')}/checkout/paypal-webhook",
         "setup_script": "python3 ops/paypal_sandbox_setup.py check",
         "endpoints": [
             "/checkout/paypal",

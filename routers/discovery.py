@@ -26,7 +26,7 @@ from market_stats import MCP_TOOLS, PACKAGE_VERSION, RETAILERS_VERIFIED
 
 router = APIRouter(tags=["discovery"])
 
-_API_BASE = os.getenv("MARKET_API_URL", "https://cli-market-production.up.railway.app").rstrip("/")
+_API_BASE = os.getenv("MARKET_API_URL", "https://cli-market-api.fly.dev").rstrip("/")
 _WEBSITE = "https://cli-market.dev"
 
 # ── OpenAI / ChatGPT Plugin manifest ─────────────────────────────────────────

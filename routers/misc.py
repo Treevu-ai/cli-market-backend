@@ -168,7 +168,7 @@ async def telegram_webhook(request: Request):
             f"\u2022 {len(STORES)} retailers en {len(LINES)} líneas\n"
             f"\u2022 {len(COUNTRIES)} países\n"
             f"\u2022 {MCP_TOOLS} MCP tools\n"
-            "\u2022 API: cli-market-production.up.railway.app\n"
+            "\u2022 API: cli-market-api.fly.dev\n"
             "\u2022 Pro: cli-market.dev/#pricing"
         )
     elif text.startswith("/coverage") or text in ("coverage", "cobertura"):
