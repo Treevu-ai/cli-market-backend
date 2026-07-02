@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from market_core.market_food_match import matches_food_basket_query
-from routers.search import _is_relevant, _query_tokens
+from routers.search import _is_relevant, _query_tokens, _truncate_per_store
 
 
 def test_query_tokens_normalizes_accents_and_case():
@@ -68,3 +68,23 @@ def test_basket_resolver_uses_staple_exclusion_not_word_match_alone():
     # A real milk product passes both.
     assert _is_relevant("Leche Descremada La Serenisima 1L", ["leche"], require_all=True) is True
     assert matches_food_basket_query("leche", {"name": "Leche Descremada La Serenisima 1L", "line": "supermercados"}) is True
+
+
+def test_truncate_per_store_caps_each_store_independently():
+    """Regression for the Promart 'pintura' case: fetching more candidates than
+    the caller's limit (so the relevance filter has real matches to find,
+    since VTEX ranks by category/campaign rather than literal name match)
+    must not balloon the response — each store's contribution is capped back
+    to the caller's limit after filtering, preserving prior response sizes.
+    """
+    products = [
+        {"store": "wong", "name": "A"}, {"store": "wong", "name": "B"}, {"store": "wong", "name": "C"},
+        {"store": "metro", "name": "D"}, {"store": "metro", "name": "E"},
+    ]
+    out = _truncate_per_store(products, limit=2)
+    assert [p["name"] for p in out] == ["A", "B", "D", "E"]
+
+
+def test_truncate_per_store_limit_higher_than_available_keeps_all():
+    products = [{"store": "wong", "name": "A"}, {"store": "metro", "name": "B"}]
+    assert _truncate_per_store(products, limit=10) == products

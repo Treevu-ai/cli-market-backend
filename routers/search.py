@@ -239,9 +239,36 @@ async def _parallel_fetch_stores(
     return all_raw, errors
 
 
+# VTEX's own per-page cap (market_connectors/vtex.py PAGE_SIZE) — fetching more
+# than this per store wouldn't return additional candidates anyway.
+_RELEVANCE_FETCH_LIMIT = 20
+
+
+def _truncate_per_store(products: list[dict], limit: int) -> list[dict]:
+    """Cap each store's contribution to `limit` items, preserving input order."""
+    seen: dict[str, int] = {}
+    out: list[dict] = []
+    for p in products:
+        store = p.get("store", "")
+        count = seen.get(store, 0)
+        if count >= limit:
+            continue
+        seen[store] = count + 1
+        out.append(p)
+    return out
+
+
 async def _search_products(body: SearchRequest):
     stores = _resolve_search_stores(body)
-    all_raw, errors = await _parallel_fetch_stores(stores, body.query, body.page, body.limit)
+    # Fetch more candidates than the caller asked for: retailer search APIs
+    # (VTEX in particular) rank by category/campaign tagging, not literal
+    # name match, so real matches for the query word can rank below the
+    # caller's requested limit and never reach the relevance filter below.
+    # Fetching up to _RELEVANCE_FETCH_LIMIT candidates per store gives the
+    # filter a fair shot; per-store results are truncated back to body.limit
+    # after filtering so response size stays as the caller expects.
+    fetch_limit = max(body.limit, _RELEVANCE_FETCH_LIMIT)
+    all_raw, errors = await _parallel_fetch_stores(stores, body.query, body.page, fetch_limit)
 
     results: list[dict] = []
     for store, raw in all_raw.items():
@@ -269,6 +296,7 @@ async def _search_products(body: SearchRequest):
                 filtered, before, body.query,
             )
 
+    results = _truncate_per_store(results, body.limit)
     results.sort(key=lambda p: p["price"] if p["price"] > 0 else float("inf"))
     for p in results:
         save_price_snapshot(p)
@@ -303,7 +331,9 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
         except Exception:
             logger.debug("record_funnel_event(demo_first_tool_call) failed", exc_info=True)
     stores = _resolve_search_stores(body)
-    all_raw, errors = await _parallel_fetch_stores(stores, body.query, body.page, body.limit)
+    # See _search_products for why this fetches more than body.limit.
+    fetch_limit = max(body.limit, _RELEVANCE_FETCH_LIMIT)
+    all_raw, errors = await _parallel_fetch_stores(stores, body.query, body.page, fetch_limit)
 
     q_tokens = _query_tokens(body.query)
 
@@ -334,6 +364,7 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
                 all_products[s].append(prod)
             except Exception:
                 logger.debug("product_from_json failed for store=%s", s, exc_info=True)
+        all_products[s] = all_products[s][: body.limit]
 
     def match_key(p: dict) -> str:
         name = re.sub(r"[^a-záéíóúñ0-9]", "", p["name"].lower())
