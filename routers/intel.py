@@ -33,6 +33,7 @@ from market_units import price_per_base_unit
 from market_indicators import (
     ENRICHMENT_INDICATOR_KEYS,
     TIER2_INDICATOR_KEYS,
+    build_intel_brief,
     compute_basket_stress,
     compute_composite_scores,
     get_indicator_catalog,
@@ -320,93 +321,24 @@ def intel_brief(
     authorization: str | None = Header(None),
     db = Depends(get_db_dep),
 ):
-    require_api_key(authorization)
-    """Aggregated intel brief: scores, enrichment, subcategory signals, and optionally the catalog.
+    """Aggregated intel brief: headline, shelf signals, macro gap, confidence,
+    composite scores, enrichment, subcategory signals, and optionally the catalog.
+
+    Delegates to market_core.market_indicators.build_intel_brief(), which also
+    live-recomputes moat_freshness/basket_stress_index and per-country store
+    coverage instead of trusting the cached indicator values this endpoint used
+    to read directly (cli-market-backend#127 S6/S7) — see that function's
+    docstring/comments for the full rationale.
 
     Response shape is designed so market_core._slice_intel_brief() can extract
     'analytics', 'enrichment', 'subcategories', or 'catalog' slices without
     a separate round-trip per section.
     """
+    require_api_key(authorization)
     _ck = ("brief", country, line, days, include_catalog)
     if (cached := _cache_get(_ck)) is not None:
         return cached
-    scores = compute_composite_scores(country=country, line=line)
-    basket_stress_value = compute_basket_stress(db, country)
-    all_values = get_latest_values(db, country=country, limit=80)
-    cc = (country or "PE").upper()
-    subcategory_items = get_subcategory_enrichment(db, cc)
-
-    enrichment_indicators = [v for v in all_values if v.get("key") in ENRICHMENT_INDICATOR_KEYS]
-    analytics_indicators = [v for v in all_values if v.get("key") in TIER2_INDICATOR_KEYS]
-
-    def _val(key: str) -> float | None:
-        for v in all_values:
-            if v.get("key") == key:
-                return v.get("value")
-        return None
-
-    shelf: dict = {}
-    for _k in ("promo_intensity", "price_dispersion"):
-        _v = _val(_k)
-        if _v is not None:
-            shelf[_k] = _v
-    if basket_stress_value is not None:
-        shelf["basket_stress_index"] = basket_stress_value
-
-    confidence: dict = {}
-    freshness = _val("moat_freshness")
-    if freshness is not None:
-        confidence["moat_freshness_pct"] = freshness
-    active_stores = _val("store_coverage")
-    confidence["stores_active"] = int(active_stores) if active_stores is not None else len(STORES)
-
-    # scores shape: {"country":..., "computed_at":..., "scores": {individual scores}, "disclaimer":...}
-    # Extract the nested scores dict before summarising.
-    scores_summary: dict = {}
-    _individual_scores = scores.get("scores", {}) if isinstance(scores, dict) else {}
-    if isinstance(_individual_scores, dict):
-        for _sk, _sv in _individual_scores.items():
-            if isinstance(_sv, dict):
-                scores_summary[_sk] = {"score": _sv.get("score"), "label": _sv.get("label")}
-            else:
-                scores_summary[_sk] = _sv
-
-    inflation_pct: float | None = _val("shelf_inflation_avg_pct")
-    cc_label = (country or "PE").upper()
-    if inflation_pct is not None:
-        headline = f"{cc_label}: {inflation_pct:+.1f}% en {days}d"
-    elif basket_stress_value is not None:
-        headline = f"{cc_label}: basket stress {basket_stress_value:.2f} — {confidence['stores_active']} tiendas activas."
-    else:
-        headline = f"Moat activo — {confidence['stores_active']} tiendas monitoreadas."
-
-    result: dict = {
-        "headline": headline,
-        "country": country,
-        "line": line,
-        "days": days,
-        "shelf": shelf,
-        "scores": scores_summary,
-        "confidence": confidence,
-        "analytics": {
-            "basket_stress_index": basket_stress_value,
-            "scores": scores,
-            "indicators": analytics_indicators,
-            "total": len(analytics_indicators),
-        },
-        "enrichment": {
-            "indicators": enrichment_indicators,
-            "total": len(enrichment_indicators),
-        },
-        "subcategories": {
-            "subcategories": subcategory_items,
-            "total": len(subcategory_items),
-        },
-    }
-
-    if include_catalog:
-        result["catalog"] = get_indicator_catalog()
-
+    result = build_intel_brief(db, country=country, line=line, days=days, include_catalog=include_catalog)
     _cache_set(_ck, result)
     return result
 
