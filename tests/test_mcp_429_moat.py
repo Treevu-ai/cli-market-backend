@@ -13,6 +13,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 
+def _api_url(path: str) -> str:
+    from routers.mcp_http import _API_BASE
+
+    return f"{_API_BASE}{path}"
+
+
 def _mock_response(status_code: int, json_body: dict | None = None, text: str = "", headers: dict | None = None):
     """Build a mock httpx.Response."""
     r = MagicMock()
@@ -39,7 +45,7 @@ def test_429_with_retry_after_header():
     """_call_tool should return retry_after_seconds (int) when backend returns 429."""
     from routers.mcp_http import _call_tool
 
-    search_url = "https://cli-market-production.up.railway.app/products/search"
+    search_url = _api_url("/products/search")
     resp_429 = _mock_response(
         429,
         json_body={"detail": "Rate limit reached (60 req/60s). Retry in 60s. Upgrade at https://cli-market.dev"},
@@ -61,7 +67,7 @@ def test_429_with_retry_after_header():
 def test_429_message_is_actionable():
     from routers.mcp_http import _call_tool
 
-    search_url = "https://cli-market-production.up.railway.app/products/search"
+    search_url = _api_url("/products/search")
     resp_429 = _mock_response(
         429,
         json_body={"detail": "Daily limit reached. Resets in 8h. Upgrade at https://cli-market.dev"},
@@ -82,7 +88,7 @@ def test_429_without_retry_after_defaults_to_60():
     """If backend omits Retry-After, default to 60."""
     from routers.mcp_http import _call_tool
 
-    search_url = "https://cli-market-production.up.railway.app/products/search"
+    search_url = _api_url("/products/search")
     resp_429 = _mock_response(429, json_body={"detail": "Too many requests"}, headers={})
 
     with patch("routers.mcp_http.httpx.AsyncClient") as MockClient:
@@ -101,8 +107,8 @@ def _run_search_with_moat(moat_response: dict) -> dict:
     from routers import mcp_http
     import routers.mcp_http as mcp_module
 
-    search_url = "https://cli-market-production.up.railway.app/products/search"
-    collector_url = "https://cli-market-production.up.railway.app/health/collector"
+    search_url = _api_url("/products/search")
+    collector_url = _api_url("/health/collector")
 
     search_result = {"results": [{"name": "Leche Gloria", "price": 4.5}]}
     resp_search = _mock_response(200, json_body=search_result)
@@ -144,7 +150,7 @@ def test_no_moat_fields_on_non_freshness_tool():
     """market_trending should not have _moat_age_hours or _data_warning."""
     import routers.mcp_http as mcp_module
 
-    trending_url = "https://cli-market-production.up.railway.app/analytics/trending"
+    trending_url = _api_url("/analytics/trending")
     resp = _mock_response(200, json_body={"trending": []})
 
     mcp_module._MOAT_CACHE = {"ts": 0.0, "age_hours": None, "status": "unknown"}
@@ -167,7 +173,7 @@ def test_moat_cache_reused_within_ttl():
 
     mcp_module._MOAT_CACHE = {"ts": time.monotonic(), "age_hours": 1.0, "status": "ok"}
 
-    search_url = "https://cli-market-production.up.railway.app/products/search"
+    search_url = _api_url("/products/search")
     resp_search = _mock_response(200, json_body={"results": []})
     mock_client = _mock_client({search_url: resp_search})
 
