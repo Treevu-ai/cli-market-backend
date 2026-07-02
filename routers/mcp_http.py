@@ -22,6 +22,7 @@ Tool tiers (default profile, 32 tools):
 
 from __future__ import annotations
 
+import os
 import time as _time
 
 import httpx
@@ -47,7 +48,7 @@ def _live_store_count() -> int:
 
 router = APIRouter(tags=["mcp-http"])
 
-_API_BASE = "https://cli-market-production.up.railway.app"
+_API_BASE = os.getenv("MARKET_API_URL", "https://cli-market-production.up.railway.app").rstrip("/")
 _MCP_VERSION = "2025-03-26"
 
 _PRO_TOOLS = frozenset({
