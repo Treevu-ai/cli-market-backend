@@ -488,16 +488,48 @@ async def _fetch_basket_store(
                     continue
             if not candidates:
                 return None
-            best_prod = min(
-                candidates,
+            # Dedup by product id (falling back to name when id is missing)
+            # before ranking — otherwise a store API returning the same SKU
+            # twice for one query could surface a "duplicate" as an alternate,
+            # defeating the point of showing genuinely different brands.
+            # Keep the cheapest candidate per key (not just the last one seen)
+            # so a duplicate with a stale/higher price can't win over a
+            # cheaper one — CodeRabbit review on cli-market-backend#157.
+            def _dedup_price(p: dict) -> float:
+                return p["price"] if p["price"] > 0 else float("inf")
+
+            best_by_key: dict[str, dict] = {}
+            for p in candidates:
+                key = p.get("id") or p.get("name")
+                if key not in best_by_key or _dedup_price(p) < _dedup_price(best_by_key[key]):
+                    best_by_key[key] = p
+            deduped_candidates = list(best_by_key.values())
+            ranked_candidates = sorted(
+                deduped_candidates,
                 key=lambda p: p["price"] if p["price"] > 0 else float("inf"),
             )
+            best_prod = ranked_candidates[0]
             q = item.get("qty", 1)
+            # Alternates: other brands/models matched at this same store —
+            # a buyer isn't stuck with whichever one happened to be cheapest
+            # (cli-market-backend#B).
+            alternates = [
+                {
+                    "brand": alt.get("brand") or None,
+                    "name": alt["name"][:40],
+                    "price": alt["price"],
+                    "product_id": alt.get("id") or None,
+                }
+                for alt in ranked_candidates[1:3]
+            ]
             return {
                 "name": best_prod["name"][:40],
+                "brand": best_prod.get("brand") or None,
+                "product_id": best_prod.get("id") or None,
                 "price": best_prod["price"],
                 "qty": q,
                 "subtotal": round(best_prod["price"] * q, 2),
+                "alternates": alternates,
             }
         except Exception:
             logger.debug(
