@@ -495,6 +495,8 @@ async def _fetch_basket_store(
             q = item.get("qty", 1)
             return {
                 "name": best_prod["name"][:40],
+                "brand": best_prod.get("brand") or None,
+                "product_id": best_prod.get("id") or None,
                 "price": best_prod["price"],
                 "qty": q,
                 "subtotal": round(best_prod["price"] * q, 2),
