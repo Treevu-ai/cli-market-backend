@@ -492,9 +492,18 @@ async def _fetch_basket_store(
             # before ranking — otherwise a store API returning the same SKU
             # twice for one query could surface a "duplicate" as an alternate,
             # defeating the point of showing genuinely different brands.
-            deduped_candidates = list(
-                {(p.get("id") or p.get("name")): p for p in candidates}.values()
-            )
+            # Keep the cheapest candidate per key (not just the last one seen)
+            # so a duplicate with a stale/higher price can't win over a
+            # cheaper one — CodeRabbit review on cli-market-backend#157.
+            def _dedup_price(p: dict) -> float:
+                return p["price"] if p["price"] > 0 else float("inf")
+
+            best_by_key: dict[str, dict] = {}
+            for p in candidates:
+                key = p.get("id") or p.get("name")
+                if key not in best_by_key or _dedup_price(p) < _dedup_price(best_by_key[key]):
+                    best_by_key[key] = p
+            deduped_candidates = list(best_by_key.values())
             ranked_candidates = sorted(
                 deduped_candidates,
                 key=lambda p: p["price"] if p["price"] > 0 else float("inf"),

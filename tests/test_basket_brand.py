@@ -135,6 +135,35 @@ def test_fetch_basket_store_alternates_dedup_same_sku(monkeypatch, pe_stores):
     assert alternates[0]["product_id"] == "sku-1"
 
 
+def test_fetch_basket_store_dedup_keeps_cheapest_duplicate(monkeypatch, pe_stores):
+    """Regression (CodeRabbit review on #157): the initial dedup fix used a
+    dict comprehension that kept the LAST duplicate seen, not the cheapest.
+    A store API returning the same SKU twice with different prices (promo,
+    stale cache) must not let the more expensive one win."""
+
+    async def _fake_fetch_store(store, term, page=1, limit=20):
+        return [{"n": 0}, {"n": 1}]
+
+    def _fake_product_from_json(p, store):
+        # Same SKU (sku-1) returned twice with DIFFERENT prices — the second
+        # occurrence (n=1) is pricier and would win under last-write-wins.
+        price = 4.5 if p["n"] == 0 else 6.0
+        return {"id": "sku-1", "name": "Leche Gloria 1L", "brand": "Gloria", "price": price, "store": store}
+
+    monkeypatch.setattr(search_router, "fetch_store", _fake_fetch_store)
+    monkeypatch.setattr(search_router, "product_from_json", _fake_product_from_json)
+    monkeypatch.setattr(search_router, "_is_relevant", lambda *a, **k: True)
+    monkeypatch.setattr(search_router, "matches_food_basket_query", lambda *a, **k: True)
+
+    _, result = asyncio.run(
+        search_router._fetch_basket_store("wong_pe", [{"name": "leche"}])
+    )
+
+    item = result["items"][0]
+    assert item["price"] == 4.5  # cheapest duplicate wins, not the last one seen
+    assert item["alternates"] == []  # both occurrences collapse into one candidate
+
+
 def test_fetch_basket_store_alternates_empty_with_single_candidate(monkeypatch, pe_stores):
     async def _fake_fetch_store(store, term, page=1, limit=20):
         return [{"raw": "product"}]
