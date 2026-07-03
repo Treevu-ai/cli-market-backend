@@ -71,3 +71,84 @@ def test_fetch_basket_store_brand_none_when_missing(monkeypatch, pe_stores):
     )
 
     assert result["items"][0]["brand"] is None
+
+
+def test_fetch_basket_store_includes_alternates(monkeypatch, pe_stores):
+    """Fix C: _fetch_basket_store used to commit silently to whichever
+    candidate was cheapest — a buyer had no way to see other matched
+    brands/models at the same store."""
+    catalog = {
+        "gloria": {"id": "sku-1", "name": "Leche Entera Gloria 1L", "brand": "Gloria", "price": 4.5},
+        "laive": {"id": "sku-2", "name": "Leche Entera Laive 1L", "brand": "Laive", "price": 3.9},
+        "ideal": {"id": "sku-3", "name": "Leche Evaporada Ideal 400g", "brand": "Ideal", "price": 5.2},
+    }
+
+    async def _fake_fetch_store(store, term, page=1, limit=20):
+        return [{"key": k} for k in catalog]
+
+    def _fake_product_from_json(p, store):
+        return {**catalog[p["key"]], "store": store}
+
+    monkeypatch.setattr(search_router, "fetch_store", _fake_fetch_store)
+    monkeypatch.setattr(search_router, "product_from_json", _fake_product_from_json)
+    monkeypatch.setattr(search_router, "_is_relevant", lambda *a, **k: True)
+    monkeypatch.setattr(search_router, "matches_food_basket_query", lambda *a, **k: True)
+
+    _, result = asyncio.run(
+        search_router._fetch_basket_store("wong_pe", [{"name": "leche entera", "qty": 1}])
+    )
+
+    item = result["items"][0]
+    assert item["brand"] == "Laive"  # cheapest wins, same as before this fix
+    alternates = item["alternates"]
+    assert [a["brand"] for a in alternates] == ["Gloria", "Ideal"]
+    assert alternates[0]["price"] == 4.5
+
+
+def test_fetch_basket_store_alternates_dedup_same_sku(monkeypatch, pe_stores):
+    """Regression: a store API returning the same SKU twice for one query
+    used to be able to surface a duplicate of the winner as an "alternate",
+    defeating the point of showing genuinely different brands."""
+
+    async def _fake_fetch_store(store, term, page=1, limit=20):
+        return [{"n": 0}, {"n": 1}, {"n": 2}]
+
+    def _fake_product_from_json(p, store):
+        if p["n"] in (0, 1):
+            # Same SKU returned twice by the upstream store API.
+            return {"id": "sku-1", "name": "Leche Gloria 1L", "brand": "Gloria", "price": 4.5, "store": store}
+        return {"id": "sku-2", "name": "Leche Laive 1L", "brand": "Laive", "price": 3.9, "store": store}
+
+    monkeypatch.setattr(search_router, "fetch_store", _fake_fetch_store)
+    monkeypatch.setattr(search_router, "product_from_json", _fake_product_from_json)
+    monkeypatch.setattr(search_router, "_is_relevant", lambda *a, **k: True)
+    monkeypatch.setattr(search_router, "matches_food_basket_query", lambda *a, **k: True)
+
+    _, result = asyncio.run(
+        search_router._fetch_basket_store("wong_pe", [{"name": "leche"}])
+    )
+
+    item = result["items"][0]
+    assert item["brand"] == "Laive"  # sku-2 is cheaper, wins
+    alternates = item["alternates"]
+    assert len(alternates) == 1  # only sku-1 remains after dedup, not two copies of it
+    assert alternates[0]["product_id"] == "sku-1"
+
+
+def test_fetch_basket_store_alternates_empty_with_single_candidate(monkeypatch, pe_stores):
+    async def _fake_fetch_store(store, term, page=1, limit=20):
+        return [{"raw": "product"}]
+
+    def _fake_product_from_json(p, store):
+        return {"id": "sku-1", "name": "Leche Gloria 1L", "brand": "Gloria", "price": 4.5, "store": store}
+
+    monkeypatch.setattr(search_router, "fetch_store", _fake_fetch_store)
+    monkeypatch.setattr(search_router, "product_from_json", _fake_product_from_json)
+    monkeypatch.setattr(search_router, "_is_relevant", lambda *a, **k: True)
+    monkeypatch.setattr(search_router, "matches_food_basket_query", lambda *a, **k: True)
+
+    _, result = asyncio.run(
+        search_router._fetch_basket_store("wong_pe", [{"name": "leche"}])
+    )
+
+    assert result["items"][0]["alternates"] == []

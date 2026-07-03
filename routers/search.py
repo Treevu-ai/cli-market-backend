@@ -488,11 +488,31 @@ async def _fetch_basket_store(
                     continue
             if not candidates:
                 return None
-            best_prod = min(
-                candidates,
+            # Dedup by product id (falling back to name when id is missing)
+            # before ranking — otherwise a store API returning the same SKU
+            # twice for one query could surface a "duplicate" as an alternate,
+            # defeating the point of showing genuinely different brands.
+            deduped_candidates = list(
+                {(p.get("id") or p.get("name")): p for p in candidates}.values()
+            )
+            ranked_candidates = sorted(
+                deduped_candidates,
                 key=lambda p: p["price"] if p["price"] > 0 else float("inf"),
             )
+            best_prod = ranked_candidates[0]
             q = item.get("qty", 1)
+            # Alternates: other brands/models matched at this same store —
+            # a buyer isn't stuck with whichever one happened to be cheapest
+            # (cli-market-backend#B).
+            alternates = [
+                {
+                    "brand": alt.get("brand") or None,
+                    "name": alt["name"][:40],
+                    "price": alt["price"],
+                    "product_id": alt.get("id") or None,
+                }
+                for alt in ranked_candidates[1:3]
+            ]
             return {
                 "name": best_prod["name"][:40],
                 "brand": best_prod.get("brand") or None,
@@ -500,6 +520,7 @@ async def _fetch_basket_store(
                 "price": best_prod["price"],
                 "qty": q,
                 "subtotal": round(best_prod["price"] * q, 2),
+                "alternates": alternates,
             }
         except Exception:
             logger.debug(
