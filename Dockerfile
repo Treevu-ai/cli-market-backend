@@ -36,4 +36,4 @@ EXPOSE 8080
 # API only — collector runs as a separate service (Railway: Dockerfile.collector / Fly: fly.collector.toml)
 # PORT defaults to 8080 (Fly.io standard); Railway overrides it automatically
 ENV PORT=8080
-CMD ["python", "-m", "uvicorn", "market_server:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "-m", "uvicorn", "market_server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]

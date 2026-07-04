@@ -83,7 +83,7 @@ def mcp_discovery():
     # Serve the canonical mcp.json from the backend root
     mcp_path = Path(__file__).resolve().parent.parent / "mcp.json"
     if mcp_path.exists():
-        return JSONResponse(content=json.loads(mcp_path.read_text()))
+        return JSONResponse(content=json.loads(mcp_path.read_text(encoding="utf-8")))
 
     # Fallback inline if file not found
     return JSONResponse(content={

@@ -19,3 +19,12 @@ query.py
 *password*.txt
 *credentials*.txt
 *.env.local
+
+# local mirror of cli-market-core's market_mcp.py for test discovery (editable install quirk)
+.deps/
+
+# local secret dumps / scratch files — never commit
+fly-secrets*.env
+fly.toml.bak
+deploy_log.txt
+logs.txt

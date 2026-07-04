@@ -222,7 +222,7 @@ def test_collector_init_schema_delegates_to_market_core(isolated_db):
     market_core, _ = isolated_db
     import collect_prices
 
-    src = Path(collect_prices.__file__).read_text()
+    src = Path(collect_prices.__file__).read_text(encoding="utf-8")
     assert "get_db_unified" in src, (
         "collect_prices must use get_db_unified() instead of raw SQLite connections."
     )

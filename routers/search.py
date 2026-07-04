@@ -18,6 +18,7 @@ import difflib
 import logging
 import os
 import re
+import time
 import unicodedata
 
 import httpx
@@ -258,7 +259,59 @@ def _truncate_per_store(products: list[dict], limit: int) -> list[dict]:
     return out
 
 
+# ── In-process search cache ─────────────────────────────────────────────
+# /products/search does a live parallel fan-out to multiple retailers per
+# call (see _parallel_fetch_stores); under concurrent load this serializes
+# behind each store's response time and gets slow fast (measured: ~3.5s
+# single request -> 6-25s at ~20 concurrent). Most repeat traffic (a
+# workshop, a demo, a popular query) asks the same thing within seconds of
+# each other, so a short TTL cache absorbs nearly all of that repeat cost.
+# In-process only (not shared across Fly machines) — simple and safe;
+# revisit with a shared cache (Redis) if per-machine hit rate isn't enough.
+_SEARCH_CACHE_TTL = float(os.getenv("SEARCH_CACHE_TTL", "300"))  # matches the bot's own KV cache TTL
+_SEARCH_CACHE_MAX_ENTRIES = 1000
+_search_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _search_cache_key(body: SearchRequest) -> str:
+    return "|".join([
+        _normalize_text(body.query),
+        (body.store or "").lower(),
+        (body.line or "").lower(),
+        (body.country or "").upper(),
+        str(body.page),
+        str(body.limit),
+    ])
+
+
+def _search_cache_get(key: str) -> dict | None:
+    entry = _search_cache.get(key)
+    if entry is None:
+        return None
+    cached_at, response = entry
+    if (time.monotonic() - cached_at) >= _SEARCH_CACHE_TTL:
+        _search_cache.pop(key, None)
+        return None
+    return response
+
+
+def _search_cache_set(key: str, response: dict) -> None:
+    if len(_search_cache) >= _SEARCH_CACHE_MAX_ENTRIES:
+        # Cheap unbounded-growth guard: drop the oldest entry. Not LRU, but
+        # this cache is sized for "recent repeat queries", not a general store.
+        oldest_key = min(_search_cache, key=lambda k: _search_cache[k][0])
+        _search_cache.pop(oldest_key, None)
+    _search_cache[key] = (time.monotonic(), response)
+
+
 async def _search_products(body: SearchRequest):
+    cache_key = _search_cache_key(body)
+    cached_response = _search_cache_get(cache_key)
+    if cached_response is not None:
+        # Still record the query for analytics even on a cache hit.
+        save_search_query(body.query, body.line, body.store, cached_response.get("total", 0))
+        return cached_response
+
     stores = _resolve_search_stores(body)
     # Fetch more candidates than the caller asked for: retailer search APIs
     # (VTEX in particular) rank by category/campaign tagging, not literal
@@ -310,7 +363,12 @@ async def _search_products(body: SearchRequest):
     if errors:
         response["partial"] = True
         response["errors"] = errors
-    return _attach_source_health(response, stores)
+    response = _attach_source_health(response, stores)
+    if not errors:
+        # Only cache clean results — a partial result from a slow/timed-out
+        # store shouldn't be served to every other request for the next 5 min.
+        _search_cache_set(cache_key, response)
+    return response
 
 
 @router.post("/products/compare")

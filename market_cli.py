@@ -111,7 +111,7 @@ T = {
 
 def get_lang() -> str:
     if LANG_FILE.exists():
-        return LANG_FILE.read_text().strip()
+        return LANG_FILE.read_text(encoding="utf-8").strip()
     return "es"
 
 def set_lang(code: str) -> None:
