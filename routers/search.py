@@ -434,6 +434,14 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
             k = match_key(p)
             key_index.setdefault(k, {})[store] = p
 
+    # Confidence of the grouping under each surviving key: 1.0 for products
+    # that landed in the same key via the exact brand+name match above (no
+    # ambiguity — e.g. "Gaseosa unidad 330ml" vs "Gaseosa sixpack 330ml" are
+    # different keys and never touch this path). Fuzzy-merged keys (below)
+    # get the actual SequenceMatcher ratio, so a shakier fuzzy match is
+    # visibly less confident than an exact one instead of looking identical.
+    merge_score: dict[str, float] = {}
+
     FUZZY_THRESHOLD = 0.70
     store_list = list(stores)
     for i in range(len(store_list)):
@@ -458,6 +466,7 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
                 if best_score >= FUZZY_THRESHOLD and best_kb:
                     key_index[ka][sb] = key_index[best_kb][sb]
                     matched_b.add(best_kb)
+                    merge_score[ka] = min(merge_score.get(ka, best_score), best_score)
                     # A successful merge folds best_kb's entry into ka — drop
                     # the original key_index[best_kb] or the same physical
                     # product shows up twice in the final comparison: once
@@ -466,6 +475,10 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
                     # rows finding, e.g. "Leche entera La Serenísima" listed
                     # separately per store despite a successful fuzzy match).
                     del key_index[best_kb]
+
+    def _confidence(score: float) -> dict:
+        level = "high" if score >= 0.90 else "medium" if score >= FUZZY_THRESHOLD else "low"
+        return {"level": level, "score": round(score, 2)}
 
     comparison: list[dict] = []
     for _k, sp in key_index.items():
@@ -491,10 +504,12 @@ async def compare_products(body: SearchRequest, authorization: str | None = Head
                     {
                         "name": rep["name"],
                         "brand": rep["brand"],
+                        "variant_key": _k,
                         "prices": prices,
                         "prices_per_unit": prices_per_unit,
                         "best_store": best,
                         "best_price": prices[best],
+                        "match_confidence": _confidence(merge_score.get(_k, 1.0)),
                     }
                 )
 
@@ -683,7 +698,27 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
     for store_data in results.values():
         enrich_list(store_data["items"], store_key=store_data.get("store_name", ""))
     # ───────────────────
-    best = min(results, key=lambda s: results[s]["total"]) if results else None
+
+    # A store that only found 2 of 5 requested items has a lower total
+    # almost by definition — it priced fewer things. Comparing that total
+    # against a store that found all 5 and calling the cheaper-looking
+    # partial the "best_store" is comparing different baskets, not prices.
+    # `comparable` marks which stores actually returned the full basket;
+    # best_store/best_complete_store only ever pick among those. Partial
+    # stores are tracked separately via lowest_partial_total so they're
+    # still visible, just never presented as the winning comparison.
+    for store_data in results.values():
+        store_data["comparable"] = store_data["items_found"] == store_data["items_requested"]
+
+    complete_stores = [s for s, d in results.items() if d["comparable"]]
+    partial_stores = [s for s, d in results.items() if not d["comparable"]]
+
+    best_complete = min(complete_stores, key=lambda s: results[s]["total"]) if complete_stores else None
+    lowest_partial = min(partial_stores, key=lambda s: results[s]["total"]) if partial_stores else None
+
+    # best_store prefers a complete store even if a partial one is cheaper;
+    # only falls back to the cheapest partial when no store has everything.
+    best = best_complete or lowest_partial
 
     payload: dict = {
         "source": "live",
@@ -691,6 +726,12 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
         "comparison": results,
         "best_store": best,
         "best_total": results[best]["total"] if best else None,
+        "best_complete_store": best_complete,
+        "lowest_partial_total": (
+            {"store": lowest_partial, "total": results[lowest_partial]["total"]}
+            if lowest_partial
+            else None
+        ),
         "stores_compared": len(results),
     }
     if body.include_action_links and best and body.items:
