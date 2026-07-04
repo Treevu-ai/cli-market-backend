@@ -530,7 +530,13 @@ async def _fetch_basket_store(
     store: str,
     items: list[dict],
 ) -> tuple[str, dict | None]:
-    """Fetch all basket items for a single store in parallel, return (store, result_or_None)."""
+    """Fetch all basket items for a single store in parallel, return (store, result_or_None).
+
+    Caller wraps this in a per-store timeout (see basket_compare) — a store
+    whose connector falls back to a slow Playwright render (Sodimac, Ripley:
+    2-20s) must not be able to hang past its own budget, let alone take the
+    whole concurrent batch down with it.
+    """
 
     async def resolve_item(item: dict) -> dict | None:
         try:
@@ -672,25 +678,52 @@ async def basket_compare(body: BasketRequest, authorization: str | None = Header
         return result
 
     parallel_batch = int(os.getenv("BASKET_PARALLEL_BATCH", "8"))
-    timeout_s = float(os.getenv("BASKET_TIMEOUT", "25.0"))
+    # Per-store budget: one slow store (VTEX direct-HTTP failure -> Playwright
+    # render fallback, seen taking 2-20s for Sodimac/Ripley) used to make the
+    # *entire* batch time out via the old batch-level asyncio.wait_for, which
+    # discarded every store in that batch — including fast, healthy ones that
+    # had already finished — and then aborted all remaining batches outright.
+    # Bounding each store individually means a slow one only costs itself.
+    store_timeout_s = float(os.getenv("BASKET_STORE_TIMEOUT", "10.0"))
+    batch_timeout_s = float(os.getenv("BASKET_TIMEOUT", "25.0"))
     results: dict[str, dict] = {}
+
+    async def fetch_with_timeout(store: str) -> tuple[str, dict | None]:
+        try:
+            return await asyncio.wait_for(
+                _fetch_basket_store(store, body.items), timeout=store_timeout_s
+            )
+        except asyncio.TimeoutError:
+            logger.warning("basket_compare store timeout store=%s", store)
+            return store, None
+        except Exception as e:
+            logger.error("basket_compare store error store=%s: %s", store, e)
+            return store, None
 
     for i in range(0, len(stores), parallel_batch):
         batch = stores[i : i + parallel_batch]
-        batch_tasks = [_fetch_basket_store(s, body.items) for s in batch]
+        batch_tasks = [fetch_with_timeout(s) for s in batch]
         try:
+            # Backstop only — each task already bounds itself to
+            # store_timeout_s, so this should never actually fire. If it
+            # somehow does, skip to the next batch instead of abandoning
+            # every store not yet tried.
             batch_results = await asyncio.wait_for(
-                asyncio.gather(*batch_tasks), timeout=timeout_s
+                asyncio.gather(*batch_tasks, return_exceptions=True),
+                timeout=batch_timeout_s,
             )
         except asyncio.TimeoutError:
-            logger.warning(
-                "basket_compare batch timeout at stores[%d:%d]", i, i + parallel_batch
+            logger.error(
+                "basket_compare batch-level timeout at stores[%d:%d] "
+                "(unexpected — per-store timeout should have prevented this)",
+                i, i + parallel_batch,
             )
-            break
-        except Exception as e:
-            logger.error("basket_compare batch error: %s", e)
-            break
-        for store, store_data in batch_results:
+            continue
+        for row in batch_results:
+            if isinstance(row, BaseException):
+                logger.error("basket_compare unexpected task exception: %s", row)
+                continue
+            store, store_data = row
             if store_data is not None:
                 results[store] = store_data
 
