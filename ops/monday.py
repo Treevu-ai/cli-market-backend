@@ -16,7 +16,7 @@ from market_pulse import build_price_pulse_markdown  # noqa: E402
 
 API_BASE = os.getenv(
     "MARKET_API_BASE",
-    os.getenv("MARKET_API_URL", "https://cli-market-production.up.railway.app"),
+    os.getenv("MARKET_API_URL", "https://cli-market-api.fly.dev"),
 ).rstrip("/")
 
 

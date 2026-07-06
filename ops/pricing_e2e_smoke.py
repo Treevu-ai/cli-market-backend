@@ -7,7 +7,7 @@ import sys
 import urllib.error
 import urllib.request
 
-API = "https://cli-market-production.up.railway.app"
+API = "https://cli-market-api.fly.dev"
 EMAIL = "billing-e2e@cli-market.dev"
 
 

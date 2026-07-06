@@ -4,7 +4,7 @@ import json
 import sys
 import urllib.request
 
-API = "https://cli-market-production.up.railway.app"
+API = "https://cli-market-api.fly.dev"
 
 
 def from_dashboard():

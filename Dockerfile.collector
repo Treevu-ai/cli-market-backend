@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # cli-market-core from PyPI; cli-market-index from private git (requirements-private.txt).
-# Railway → collector service → Variables: GITHUB_TOKEN or GH_TOKEN (PAT, repo read on cli-market-index).
+# Fly.io → collector service → `fly secrets set`: GITHUB_TOKEN or GH_TOKEN (PAT, repo read on cli-market-index).
 ARG GITHUB_TOKEN
 ARG GH_TOKEN
 ARG CACHE_BUST=2026-06-23-core-8469854
@@ -21,7 +21,7 @@ RUN set -eux; \
     echo "cache_bust=${CACHE_BUST}"; \
     INDEX_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"; \
     if [ -z "${INDEX_TOKEN}" ]; then \
-      echo "error: set GITHUB_TOKEN or GH_TOKEN on Railway for cli-market-index (git+https)" >&2; \
+      echo "error: set GITHUB_TOKEN or GH_TOKEN on Fly.io for cli-market-index (git+https)" >&2; \
       exit 1; \
     fi; \
     git config --global url."https://x-access-token:${INDEX_TOKEN}@github.com/".insteadOf "https://github.com/"; \

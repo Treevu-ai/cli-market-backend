@@ -25,11 +25,12 @@ from ops.load_env import load_repo_env
 
 load_repo_env()
 
-# Local runs against Railway: internal hostname is unreachable; prefer public URL.
+# Local runs against Fly: internal hostname (.internal / .flycast) is unreachable; prefer public URL.
 _public = os.getenv("DATABASE_PUBLIC_URL", "").strip()
 if _public and (
     not os.getenv("DATABASE_URL")
-    or "railway.internal" in os.getenv("DATABASE_URL", "")
+    or ".internal" in os.getenv("DATABASE_URL", "")
+    or ".flycast" in os.getenv("DATABASE_URL", "")
 ):
     os.environ["DATABASE_URL"] = _public
 

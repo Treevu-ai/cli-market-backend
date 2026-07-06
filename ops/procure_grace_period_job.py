@@ -11,11 +11,11 @@ Usage:
   py ops/procure_grace_period_job.py [--dry-run]
 
 Env vars required (same as backend):
-  DATABASE_URL or RAILWAY_PRIVATE_DOMAIN  — Postgres connection
+  DATABASE_URL                            — Postgres connection
   SMTP_HOST / SMTP_USER / SMTP_PASSWORD   — email sending
   PROCURE_APP_URL                         — override dashboard URL (optional)
 
-Schedule: daily cron at 09:00 UTC (Railway cron or GitHub Actions).
+Schedule: daily cron at 09:00 UTC (GitHub Actions).
 """
 from __future__ import annotations
 

@@ -66,12 +66,12 @@ CHANNEL_NAME = "command-control-cli-market"
 
 DASHBOARD_URL = os.getenv(
     "DASHBOARD_DATA_URL",
-    "https://cli-market-production.up.railway.app/dashboard/data",
+    "https://cli-market-api.fly.dev/dashboard/data",
 )
 API_BASE = os.getenv(
     "MARKET_API_URL",
     DASHBOARD_URL.rsplit("/dashboard/data", 1)[0]
-    or "https://cli-market-production.up.railway.app",
+    or "https://cli-market-api.fly.dev",
 )
 REPORT_DIR = Path(__file__).resolve().parent / "reports"
 
@@ -120,7 +120,7 @@ FOUNDER_COMMANDS: list[dict[str, Any]] = [
         "items": [
             ("16", ".\\ops\\deploy_landing.ps1", "Landing Cloudflare (si UI)"),
             ("17", "Ver ops/PYPI_RELEASE.md", "Release CLI PyPI"),
-            ("18", "railway up", "API Railway tras cambios backend"),
+            ("18", "fly deploy --app cli-market-api", "API Fly.io tras cambios backend"),
         ],
     },
 ]
@@ -771,7 +771,7 @@ def _observatory_section(
         return [
             "*🔭 Observatory (MAA)*",
             "",
-            "_Telemetría MCP desactivada o sin datos — `OBSERVATORY_TELEMETRY=1` en Railway._",
+            "_Telemetría MCP desactivada o sin datos — `OBSERVATORY_TELEMETRY=1` en Fly.io._",
             "",
         ]
 
@@ -896,7 +896,7 @@ def _priority_actions(metrics: dict[str, Any]) -> list[str]:
     if pam["fail"] > 0:
         actions.append((1, f"🔴 PAM con {pam['fail']} FAIL → `python ops/production_acceptance.py --tier 2` y revisar ops/reports/"))
     if m["collector_stale"]:
-        actions.append((1, "🔴 Collector stale → revisar servicio collector en Railway + `python collect_prices.py --status`"))
+        actions.append((1, "🔴 Collector stale → revisar servicio collector en Fly.io + `python collect_prices.py --status`"))
     if m["coverage_7d_pct"] < COVERAGE_7D_TARGET:
         actions.append((2, f"🟡 Coverage {m['coverage_7d_pct']:.0f}% < {COVERAGE_7D_TARGET:.0f}% → `make gate-remote` y tiendas con <30% éxito"))
     if metrics["index"]["linkage_pct"] < LINKAGE_TARGET:

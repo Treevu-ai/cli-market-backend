@@ -3,7 +3,7 @@
 collect_prices.py — VTEX price collector for CLI Market data moat.
 
 PostgreSQL (DATABASE_URL) or SQLite fallback.
-Railway-compatible: set DATABASE_URL=${{Postgres.DATABASE_URL}}
+Fly.io-compatible: DATABASE_URL is auto-injected by `fly postgres attach`.
 
 Usage:
     python collect_prices.py              # run once
@@ -536,7 +536,7 @@ if USE_PG:
         if _pg_pool is None:
             pool_size = max(PARALLEL + 2, 15)
             # SSL: respect sslmode in DATABASE_URL; default to 'prefer' so it
-            # works on both Railway private networking (no SSL) and public URLs (SSL).
+            # works on both Fly private networking (no SSL) and public URLs (SSL).
             # Override with PG_SSL_MODE env var if needed.
             ssl_mode = os.getenv("PG_SSL_MODE", "prefer")
             ssl_arg: object = ssl_mode if ssl_mode not in ("disable", "false") else False

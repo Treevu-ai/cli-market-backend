@@ -12,7 +12,7 @@ index 0000000..96505cb
 + */
 +
 +const API_BASE = (
-+  process.env.NEXT_PUBLIC_API_URL || "https://cli-market-production.up.railway.app"
++  process.env.NEXT_PUBLIC_API_URL || "https://cli-market-api.fly.dev"
 +).replace(/\/$/, "");
 +
 +type Props = {

@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 API_BASE = os.getenv(
     "MARKET_API_BASE",
-    "https://cli-market-production.up.railway.app",
+    "https://cli-market-api.fly.dev",
 )
 
 

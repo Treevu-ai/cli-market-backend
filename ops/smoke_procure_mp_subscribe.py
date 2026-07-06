@@ -27,7 +27,7 @@ import time
 import urllib.error
 import urllib.request
 
-BASE = os.getenv("MARKET_API_BASE", "https://cli-market-production.up.railway.app")
+BASE = os.getenv("MARKET_API_BASE", "https://cli-market-api.fly.dev")
 EMAIL = os.getenv("SMOKE_EMAIL", "procure-smoke@cli-market.dev")
 
 

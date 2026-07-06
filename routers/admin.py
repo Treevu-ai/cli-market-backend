@@ -12,7 +12,7 @@ Endpoints:
   POST /admin/cron/indicators-refresh  Refresh moat indicators (internal + macro + Phase 2)
   POST /admin/cron/commerce-pulse  Generate Agentic Commerce Pulse reports (weekly)
 
-Protected with MARKET_API_TOKEN (Bearer). Set on Railway before exposing publicly.
+Protected with MARKET_API_TOKEN (Bearer). Set on Fly.io before exposing publicly.
 """
 
 from __future__ import annotations

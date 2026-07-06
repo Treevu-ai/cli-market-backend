@@ -42,7 +42,7 @@ Or copy `tools/homepage-intelligence/` from the backend branch and run:
 
 ```env
 # landing/.env.local (or Vercel project env)
-NEXT_PUBLIC_API_URL=https://cli-market-production.up.railway.app
+NEXT_PUBLIC_API_URL=https://cli-market-api.fly.dev
 ```
 
 ## Backend CSP (iframe)

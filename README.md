@@ -13,13 +13,13 @@
 > semantic dashboard, retry helpers) have been ported to cli-market-world as of June 2026.
 >
 > **New development should happen in cli-market-world.** This repo is kept for reference
-> and existing Railway deployments. Migrate to cli-market-world for the single source of truth.
+> and existing Fly.io deployments. Migrate to cli-market-world for the single source of truth.
 
 > **Private repo** · Treevu-ai org — request access from maintainer.
 
 FastAPI backend powering the [CLI Market](https://cli-market.dev) production API — 81 retailers (41 verified active) across VTEX · Shopify · Magento · WooCommerce, 61,000+ shelf prices, Mercado Pago + PayPal checkout.
 
-![Python 3.11](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-latest-green) ![Railway](https://img.shields.io/badge/Deploy-Railway-blueviolet) ![MIT](https://img.shields.io/badge/License-MIT-lightgrey)
+![Python 3.11](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-latest-green) ![Fly.io](https://img.shields.io/badge/Deploy-Fly.io-8b5cf6) ![MIT](https://img.shields.io/badge/License-MIT-lightgrey)
 
 ---
 
@@ -28,7 +28,7 @@ FastAPI backend powering the [CLI Market](https://cli-market.dev) production API
 ```bash
 pip install cli-market
 
-export MARKET_API_URL=https://cli-market-production.up.railway.app
+export MARKET_API_URL=https://cli-market-api.fly.dev
 market login
 market search "leche" --country PE
 ```
@@ -45,7 +45,7 @@ Key env vars (local):
 
 ## API overview
 
-Interactive docs: <https://cli-market-production.up.railway.app/docs>
+Interactive docs: <https://cli-market-api.fly.dev/docs>
 
 | Router | Prefix | Description |
 |---|---|---|
@@ -71,16 +71,16 @@ Interactive docs: <https://cli-market-production.up.railway.app/docs>
 
 ---
 
-## Deployment (Railway)
+## Deployment (Fly.io)
 
-The service is deployed via [`railway.toml`](railway.toml). The collector daemon uses [`railway.collector.toml`](railway.collector.toml) and runs [`collect_prices.py`](collect_prices.py) on a 4-hour cycle.
+The service is deployed via [`fly.toml`](fly.toml). The collector daemon uses [`fly.collector.toml`](fly.collector.toml) and runs [`collect_prices.py`](collect_prices.py) on a 4-hour cycle.
 
-Required env vars on Railway:
+Required env vars on Fly.io (`fly secrets set ...`):
 
 ```
 DATABASE_URL=postgresql://...
-PORT=8765
-MARKET_API_URL=https://cli-market-production.up.railway.app
+PORT=8080
+MARKET_API_URL=https://cli-market-api.fly.dev
 ```
 
 ---

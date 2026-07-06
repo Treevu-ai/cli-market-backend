@@ -316,7 +316,7 @@ async def mercadopago_status(test: bool = False):
                 "MERCADOPAGO_WEBHOOK_TOKEN",
                 "MERCADOPAGO_SECRET_SIGNATURE",
                 "MP_WEBHOOK_SECRET",
-                "RAILWAY_PUBLIC_DOMAIN",
+                "FLY_APP_NAME",
             )
         },
         "endpoints": [

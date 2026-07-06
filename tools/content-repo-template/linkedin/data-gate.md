@@ -16,8 +16,8 @@ status: active
 ## Fuente de verdad
 
 ```bash
-curl -sS https://cli-market-production.up.railway.app/dashboard/data | python3 -m json.tool
-curl -sS https://cli-market-production.up.railway.app/health/db | python3 -m json.tool
+curl -sS https://cli-market-api.fly.dev/dashboard/data | python3 -m json.tool
+curl -sS https://cli-market-api.fly.dev/health/db | python3 -m json.tool
 ```
 
 Export semanal: `python3 ops/sync_linkedin_metrics.py` → `metrics/price-pulse-YYYY-WW.md`
@@ -74,7 +74,7 @@ Export semanal: `python3 ops/sync_linkedin_metrics.py` → `metrics/price-pulse-
 
 ```bash
 # Day 8 — guardado en repo
-curl -sS -X POST https://cli-market-production.up.railway.app/products/compare \
+curl -sS -X POST https://cli-market-api.fly.dev/products/compare \
   -H 'Content-Type: application/json' \
   -d '{"query":"arroz","country":"PE","limit":20}' \
   > docs/metrics/query-arroz-pe.json

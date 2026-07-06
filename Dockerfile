@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev git tesseract-ocr tesseract-ocr-spa && rm -rf /var/lib/apt/lists/*
 
 # Private cli-market-index clone during pip install.
-# Railway → API service → Variables: GITHUB_TOKEN or GH_TOKEN (PAT, repo read on cli-market-index).
+# Fly.io → API service → `fly secrets set`: GITHUB_TOKEN or GH_TOKEN (PAT, repo read on cli-market-index).
 ARG GITHUB_TOKEN
 ARG GH_TOKEN
 ARG CACHE_BUST=2026-06-29-core-0a6c847
@@ -18,7 +18,7 @@ RUN set -eux; \
     echo "cache_bust=${CACHE_BUST}"; \
     INDEX_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"; \
     if [ -z "${INDEX_TOKEN}" ]; then \
-      echo "error: set GITHUB_TOKEN or GH_TOKEN on Railway for cli-market-index (git+https)" >&2; \
+      echo "error: set GITHUB_TOKEN or GH_TOKEN on Fly.io for cli-market-index (git+https)" >&2; \
       exit 1; \
     fi; \
     git config --global url."https://x-access-token:${INDEX_TOKEN}@github.com/".insteadOf "https://github.com/"; \
@@ -33,7 +33,7 @@ ENV MARKET_DATA_DIR=/data
 
 EXPOSE 8080
 
-# API only — collector runs as a separate service (Railway: Dockerfile.collector / Fly: fly.collector.toml)
-# PORT defaults to 8080 (Fly.io standard); Railway overrides it automatically
+# API only — collector runs as a separate Fly app (Dockerfile.collector / fly.collector.toml)
+# PORT defaults to 8080 (Fly.io standard); overridden automatically via fly.toml internal_port
 ENV PORT=8080
 CMD ["python", "-m", "uvicorn", "market_server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]

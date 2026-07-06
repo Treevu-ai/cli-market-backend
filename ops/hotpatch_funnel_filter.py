@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Push funnel filter files to the live Railway container via SSH (chunked base64)."""
+"""Push funnel filter files to the live Fly.io machine via SSH (chunked base64)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ FILES = (
 
 def _ssh(python_snippet: str) -> subprocess.CompletedProcess[str]:
     escaped = python_snippet.replace("\\", "\\\\").replace('"', '\\"')
-    cmd = f"railway ssh 'python -c \"{escaped}\"'"
+    cmd = f"fly ssh console -a cli-market-api -C 'python -c \"{escaped}\"'"
     return subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, shell=True)
 
 
