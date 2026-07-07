@@ -205,6 +205,7 @@ TIER_LIMITS: dict[str, tuple[int, int]] = {
     "free":       (1_000,   60),
     "starter":    (5_000,  120),
     "pro":       (10_000,  300),
+    "data":      (100_000, 600),   # Tier 1 data/intel API — see market_billing.TIERS["data"]
     "enterprise": (-1,      -1),   # -1 = unlimited
 }
 
