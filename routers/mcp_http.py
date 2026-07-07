@@ -208,7 +208,14 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
             r = await client.get(f"{_API_BASE}/auth/whoami", headers=headers)
         # ── Pro tools ─────────────────────────────────────────────────────────
         elif name == "market_basket":
-            r = await client.post(f"{_API_BASE}/v1/basket/compare", json=args, headers=headers)
+            # Default to the DB-backed path (fast, ~ms) instead of the live
+            # per-item retailer scrape (with Playwright fallback) that
+            # /v1/basket/compare does when include_tco/include_action_links
+            # are both absent — that path routinely took 20-90s+ and could
+            # OOM the shared-cpu-1x machine. Callers that explicitly want
+            # live-scraped freshness can still pass include_tco=false.
+            basket_args = {"include_tco": True, **args}
+            r = await client.post(f"{_API_BASE}/v1/basket/compare", json=basket_args, headers=headers)
         elif name == "market_procurement_signal":
             r = await client.get(f"{_API_BASE}/v1/intel/basket-stress", params={"country": args.get("country")}, headers=headers)
         elif name == "market_price_risk":
