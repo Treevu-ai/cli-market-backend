@@ -32,7 +32,7 @@ from fastapi.responses import JSONResponse
 from market_core import get_db
 from market_core.market_mcp_registry import list_tools as _registry_list_tools
 from market_funnel import record_funnel_event
-from market_stats import MCP_TOOLS, PACKAGE_VERSION, RETAILERS_VERIFIED
+from market_stats import COUNTRIES, MCP_TOOLS, PACKAGE_VERSION, RETAILERS_VERIFIED
 from server_deps import require_api_key
 
 
@@ -385,7 +385,7 @@ async def mcp_http(
                 "version": PACKAGE_VERSION,
                 "description": (
                     f"Commerce infrastructure for AI agents — {_live_store_count()} retailers, "
-                    f"{len(_TOOLS)} tools, 8 LATAM countries."
+                    f"{len(_TOOLS)} tools, {COUNTRIES} LATAM countries."
                 ),
             },
         }, req_id))
