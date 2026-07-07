@@ -22,7 +22,13 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from market_stats import MCP_TOOLS, PACKAGE_VERSION, RETAILERS_VERIFIED
+from market_stats import (
+    COUNTRIES,
+    MCP_TOOLS,
+    PACKAGE_VERSION,
+    PRICES_VERIFIED_LABEL,
+    RETAILERS_VERIFIED,
+)
 
 router = APIRouter(tags=["discovery"])
 
@@ -42,7 +48,7 @@ _AI_PLUGIN = {
     ),
     "description_for_model": (
         "CLI Market gives you real-time retail price data across Latin America. "
-        f"Use it to: search products across {RETAILERS_VERIFIED} retailers in 8 countries "
+        f"Use it to: search products across {RETAILERS_VERIFIED} retailers in {COUNTRIES} countries "
         "(market_search), compare prices for the same product across stores (market_compare), "
         "discover trending products (market_trending), get inflation and basket stress data "
         "(market_inflation), get a full market intelligence brief (market_intel_brief), "
@@ -91,8 +97,8 @@ def mcp_discovery():
         "name": "CLI Market",
         "description": (
             f"Commerce infrastructure for AI agents — {MCP_TOOLS} MCP tools to search, compare, "
-            f"and analyze prices across {RETAILERS_VERIFIED} retailers in 8 countries. "
-            "51,000+ real prices, refreshed every 4 hours. MIT."
+            f"and analyze prices across {RETAILERS_VERIFIED} retailers in {COUNTRIES} countries. "
+            f"{PRICES_VERIFIED_LABEL} real prices, refreshed every 4 hours. MIT."
         ),
         "type": "stdio",
         "command": "market-mcp",
@@ -111,8 +117,8 @@ _TOOLS_OPENAPI = {
     "info": {
         "title": "CLI Market — Agent Tools",
         "description": (
-            f"Curated API for AI agents. {RETAILERS_VERIFIED} retailers across 8 LATAM countries. "
-            "51,000+ prices updated every 4 hours."
+            f"Curated API for AI agents. {RETAILERS_VERIFIED} retailers across {COUNTRIES} LATAM countries. "
+            f"{PRICES_VERIFIED_LABEL} prices updated every 4 hours."
         ),
         "version": PACKAGE_VERSION,
         "contact": {"email": "acuba0103@gmail.com", "url": _WEBSITE},
@@ -375,7 +381,7 @@ def tools_openapi_intel():
         "CLI Market — Market Intel Agent",
         ("LATAM retail market intelligence for analysts and fintechs. "
          "Real-time inflation signals, basket stress index, retail aggression scores, "
-         "and commodity price trends across 8 countries."),
+         f"and commodity price trends across {COUNTRIES} countries."),
         intel_paths,
     ))
 
@@ -387,7 +393,7 @@ def tools_openapi_account():
                      if k in ("/stores", "/products/search")}
     return JSONResponse(content=_make_spec(
         "CLI Market — Retailer Explorer",
-        (f"Explore CLI Market's {RETAILERS_VERIFIED} indexed retailers across 8 countries. "
+        (f"Explore CLI Market's {RETAILERS_VERIFIED} indexed retailers across {COUNTRIES} countries. "
          "Find which retailers operate in a country, search their catalogs, and understand coverage."),
         account_paths,
     ))

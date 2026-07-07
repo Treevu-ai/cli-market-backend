@@ -32,7 +32,14 @@ from fastapi.responses import JSONResponse
 from market_core import get_db
 from market_core.market_mcp_registry import list_tools as _registry_list_tools
 from market_funnel import record_funnel_event
-from market_stats import COUNTRIES, MCP_TOOLS, PACKAGE_VERSION, RETAILERS_VERIFIED
+from market_stats import (
+    COUNTRIES,
+    COUNTRY_CODES,
+    MCP_TOOLS,
+    PACKAGE_VERSION,
+    PRICES_VERIFIED_LABEL,
+    RETAILERS_VERIFIED,
+)
 from server_deps import require_api_key
 
 
@@ -304,8 +311,8 @@ async def mcp_server_card():
         "version": PACKAGE_VERSION,
         "description": (
             f"Commerce infrastructure for AI agents — {live_stores} verified LATAM retailers, "
-            f"{len(_TOOLS)} MCP tools, 8 countries (PE, AR, BR, MX, CO, CL, IT, FR). "
-            "61,000+ real prices refreshed every 4h."
+            f"{len(_TOOLS)} MCP tools, {COUNTRIES} countries ({', '.join(COUNTRY_CODES)}). "
+            f"{PRICES_VERIFIED_LABEL} real prices refreshed every 4h."
         ),
         "homepage": "https://cli-market.dev",
         "repository": "https://pypi.org/project/cli-market-world/",
