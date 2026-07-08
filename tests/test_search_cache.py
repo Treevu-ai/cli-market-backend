@@ -94,7 +94,7 @@ async def test_partial_result_is_not_cached(monkeypatch):
 
     body = search.SearchRequest(query="arroz")
     r1 = await search.search_products(body, "Bearer token")
-    r2 = await search.search_products(body, "Bearer token")
+    await search.search_products(body, "Bearer token")
 
     assert r1.get("partial") is True
     assert len(fetch_calls) == 2  # never cached, so it re-fetched every time
