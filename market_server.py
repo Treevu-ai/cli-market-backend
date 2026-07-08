@@ -27,6 +27,18 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+# market_core ships client-SDK helpers (e.g. market_tco.simulate_delivery_quote)
+# that call this server's own public API over HTTP. Routers here import those
+# helpers directly (see routers/search.py's /products/delivery handler), so
+# without this guard the server ends up issuing HTTP requests to itself on
+# every request to that endpoint — each of which re-enters the same handler
+# and repeats, saturating the process until /health starts timing out
+# (production incident: cli-market-api health checks intermittently critical,
+# 2026-07-08). MARKET_SKIP_LIVE is the SDK's existing opt-out (already used by
+# CI); setdefault so an operator can still force it back on for local
+# debugging via env, but the server never self-calls by default.
+os.environ.setdefault("MARKET_SKIP_LIVE", "1")
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
