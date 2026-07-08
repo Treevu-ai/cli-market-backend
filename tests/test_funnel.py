@@ -130,6 +130,6 @@ def test_pam_journey_synthetic():
     acct = client.get("/auth/account?lang=en", headers=headers)
     assert acct.status_code == 200
     body = acct.json()
-    assert body["tier"] == "free"
+    assert body["tier"] == "starter"
     assert "usage" in body
-    assert body["upgrade"]["next_tier"] == "starter"
+    assert body["upgrade"]["next_tier"] == "pro"
