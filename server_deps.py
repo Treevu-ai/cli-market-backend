@@ -202,7 +202,13 @@ def require_checkout_access(username: str) -> None:
 # ── Per-user rate limiting ────────────────────────────────────────────────────
 
 TIER_LIMITS: dict[str, tuple[int, int]] = {
-    "free":       (1_000,   60),
+    # Keep in sync with market_billing.TIERS["free"] (cli-market-core) — this
+    # is only the fallback when a subscription row lacks a stored
+    # req_limit_day/min (see _get_user_tier_limits below); registration
+    # (routers/auth.py) writes an explicit value at signup time, so this
+    # constant drifting from TIERS silently stops mattering for most users
+    # until it's the *only* thing checked, which is easy to miss.
+    "free":       (15,      10),
     "starter":    (5_000,  120),
     "pro":       (10_000,  300),
     "data":      (100_000, 600),   # Tier 1 data/intel API — see market_billing.TIERS["data"]
