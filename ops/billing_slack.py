@@ -7,13 +7,23 @@ import os
 
 logger = logging.getLogger(__name__)
 
-TIER_LABELS: dict[str, str] = {
-    "pro": "CLI Market Pro ($39)",
-    "starter": "CLI Market Starter ($24)",
-    "procure_starter": "Procure Starter ($29)",
-    "procure_pro": "Procure Pro ($79)",
-    "procure_builder": "Procure Builder ($149)",
-}
+def _tier_labels() -> dict[str, str]:
+    # Built from market_billing's live price constants instead of hardcoded
+    # numbers — this drifted from the real Pro/Starter price before (showed
+    # $39/$24 in Slack revenue alerts for months after the actual price
+    # changed to $49/$9, cli-market-backend incident 2026-07-08).
+    from market_billing import PUBLIC_PRO_PRICE_USD, PUBLIC_STARTER_PRICE_USD
+
+    return {
+        "pro": f"CLI Market Pro (${PUBLIC_PRO_PRICE_USD:.0f})",
+        "starter": f"CLI Market Starter (${PUBLIC_STARTER_PRICE_USD:.0f})",
+        "procure_starter": "Procure Starter ($29)",
+        "procure_pro": "Procure Pro ($79)",
+        "procure_builder": "Procure Builder ($149)",
+    }
+
+
+TIER_LABELS: dict[str, str] = _tier_labels()
 
 _FUNNEL_QUIET_DEFAULT = frozenset({"install", "login", "first_search"})
 
@@ -165,7 +175,7 @@ def pro_pending_slack_blocks(
     mail = (email or "—").strip()
     method = (payment_method or "—").strip()
     lines = [
-        "⏳ *[REVENUE]* CLI Market Pro ($39) — pago pendiente",
+        f"⏳ *[REVENUE]* {TIER_LABELS['pro']} — pago pendiente",
         f"• ref: `{ref}` · usuario: `{user}`",
         f"• email: {mail} · método: {method}",
     ]
