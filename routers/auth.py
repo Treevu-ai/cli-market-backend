@@ -37,6 +37,7 @@ from market_core import (
     db_set_subscription,
     get_db,
 )
+from market_billing import TRIAL_DAYS
 from server_deps import (
     check_auth_brute_force,
     check_rate_limit,
@@ -239,7 +240,11 @@ def verify_email(body: VerifyEmailRequest):
 
     username = f"user-{uuid.uuid4().hex[:12]}"
     db_save_user(username, hash_password(uuid.uuid4().hex), None, email)
-    db_set_subscription(username, "free")
+    # No free plan — registration starts a time-limited Starter trial. It
+    # expires back down to the "free" tier's (minimal) limits automatically
+    # via db_get_subscription's existing expiry check (market_billing.py) —
+    # no separate downgrade cron needed.
+    db_set_subscription(username, "starter", expires_days=TRIAL_DAYS)
     result = db_create_api_key(username, "read_write", "register")
     try:
         from market_funnel import record_funnel_event
@@ -308,7 +313,12 @@ def verify_email(body: VerifyEmailRequest):
         "scopes": result["scopes"],
         "email": email,
         "verified": True,
-        "message": "Email verificado. API key generada — guardala, no se vuelve a mostrar.",
+        "tier": "starter",
+        "trial_days": TRIAL_DAYS,
+        "message": (
+            f"Email verificado. API key generada — guardala, no se vuelve a mostrar. "
+            f"Tenés {TRIAL_DAYS} días de prueba gratuita del plan Starter."
+        ),
         "next_steps": [
             {
                 "action": "first_search",

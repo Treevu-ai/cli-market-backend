@@ -11,13 +11,15 @@ Usage in claude.ai (Add MCP server):
   (claude.ai connectors don't support Bearer auth — use the token query param instead)
 
 Tool tiers (default profile, 32 tools):
-  Free  — search, compare, trending, discover, barcode, inflation, inflation_report,
-           scores, intel_brief, stats, whoami, subscription, preferences,
-           household_get, affordability, substitutes, login
-  Pro   — basket, optimize_purchase, price_risk, procurement_signal, favorites,
-           price_alerts, export, ask, add, cart, cart_update, checkout, orders,
-           household_update, ticket
-           (returns upgrade prompt if tier is free)
+  Starter — search, compare, trending, discover, barcode, inflation, inflation_report,
+            scores, intel_brief, stats, whoami, subscription, preferences,
+            household_get, affordability, substitutes, login
+            (every account starts on a 7-day Starter trial — see TRIAL_DAYS
+            in market_billing.py; no permanent free tier)
+  Pro     — basket, optimize_purchase, price_risk, procurement_signal, favorites,
+            price_alerts, export, ask, add, cart, cart_update, checkout, orders,
+            household_update, ticket
+            (returns upgrade prompt if tier is starter/free)
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ import os
 import time as _time
 
 import httpx
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from market_core import get_db
@@ -418,6 +420,19 @@ async def mcp_http(
             return JSONResponse(_rpc_err(-32001, "Auth required: Authorization header or ?token= query param", req_id), status_code=401)
         try:
             require_api_key(effective_auth)
+        except HTTPException as exc:
+            # require_api_key can fail for reasons other than a bad token —
+            # most commonly a 429 rate limit. Blanket-labeling every failure
+            # "Invalid or expired API token" made a rate-limited user think
+            # their auth was broken (cli-market-backend, 2026-07-08 incident)
+            # when the real fix was just waiting for the daily window to
+            # reset. Propagate the real status and message instead.
+            code = -32029 if exc.status_code == 429 else -32001
+            response = JSONResponse(_rpc_err(code, str(exc.detail), req_id), status_code=exc.status_code)
+            if exc.headers:
+                for k, v in exc.headers.items():
+                    response.headers[k] = v
+            return response
         except Exception:
             return JSONResponse(_rpc_err(-32001, "Invalid or expired API token", req_id), status_code=401)
 
