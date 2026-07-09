@@ -78,6 +78,19 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: flyctl apps restart cli-market-api
 
+      - name: Restart collector app
+        # cli-market-collector holds its own DATABASE_URL secret, separate
+        # from cli-market-api's. A Postgres recovery/failover can rotate
+        # credentials that only get re-verified on cli-market-api here —
+        # the collector silently keeps using stale creds until its next
+        # ~4h cycle fails with InvalidPasswordError (root cause of a
+        # 55+ hour dead-collector incident, 2026-07-09). Restarting it
+        # alongside the API forces it to pick up any credential change and
+        # surfaces auth problems immediately instead of hours later.
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl apps restart cli-market-collector
+
       - name: Verify USE_PG on API
         if: inputs.skip_api_verify != true
         env:
@@ -91,7 +104,26 @@ jobs:
           print('USE_PG OK')
           \""
 
+      - name: Verify collector can reach Postgres
+        if: inputs.skip_api_verify != true
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          sleep 10
+          flyctl ssh console --app cli-market-collector -C "python3 -c \"
+          import asyncio, os
+          async def check():
+              import asyncpg
+              conn = await asyncpg.connect(os.environ['DATABASE_URL'])
+              await conn.fetchval('SELECT 1')
+              await conn.close()
+          asyncio.run(check())
+          print('collector DB connection OK')
+          \""
+
       - name: Smoke /health/db
         run: |
           curl -fsS https://cli-market-api.fly.dev/health/db
+          echo ""
+          curl -fsS https://cli-market-api.fly.dev/health/collector
           echo ""
