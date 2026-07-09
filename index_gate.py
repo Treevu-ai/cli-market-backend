@@ -228,30 +228,35 @@ def _resolve_and_link(
     store, pid, snapshot = _row_to_snapshot(row)
     try:
         result = svc.resolve_snapshot(snapshot)
-        if not result.product:
-            stats["skipped"] += 1
-            return
-        stats["resolved"] += 1
-        match = result.match_type
-        if match in stats:
-            stats[match] += 1
-        elif match == "none":
-            stats["auto"] += 1
-
-        prod_id = result.product.id
-        if not dry_run and prod_id:
-            db.execute(
-                """
-                UPDATE price_snapshots
-                SET canonical_product_id = ?
-                WHERE store = ? AND product_id = ?
-                """,
-                (prod_id, store, pid),
-            )
-            stats["linked"] += 1
     except Exception as exc:
         stats["errors"] += 1
-        logger.debug("index snapshot %s/%s: %s", store, pid, exc)
+        logger.debug("resolve snapshot %s/%s: %s", store, pid, exc)
+        return
+    if not result.product:
+        stats["skipped"] += 1
+        return
+    stats["resolved"] += 1
+    match = result.match_type
+    if match in stats:
+        stats[match] += 1
+    elif match == "none":
+        stats["auto"] += 1
+
+    prod_id = result.product.id
+    if not dry_run and prod_id:
+        # DB errors (including a dropped connection) propagate to the caller
+        # instead of being swallowed here — a dead connection used to go
+        # undetected for the rest of the batch (hundreds of silent failures
+        # in DEBUG logs) until the final commit crashed the whole process.
+        db.execute(
+            """
+            UPDATE price_snapshots
+            SET canonical_product_id = ?
+            WHERE store = ? AND product_id = ?
+            """,
+            (prod_id, store, pid),
+        )
+        stats["linked"] += 1
 
 
 def _fetch_recent_snapshot_rows(db: Any, *, since_minutes: int, limit: int) -> list[Any]:
@@ -345,9 +350,34 @@ def _index_snapshot_rows(
             if key in seen:
                 continue
             seen.add(key)
-            _resolve_and_link(svc, db, row, dry_run=dry_run, stats=stats)
-        if not dry_run:
-            db.commit()
+            try:
+                _resolve_and_link(svc, db, row, dry_run=dry_run, stats=stats)
+                if not dry_run:
+                    # Commit per row instead of once for the whole batch: a
+                    # single multi-hundred-row transaction can stay open for
+                    # tens of minutes when registry matching is slow, holding
+                    # row locks on price_snapshots long enough to block the
+                    # collector's concurrent UPSERTs (root cause of the
+                    # 2026-07-09 promart insert-error incident).
+                    db.commit()
+            except Exception as exc:
+                # Connection may have dropped mid-batch (idle timeout,
+                # network blip). Reconnect once and retry this row instead of
+                # continuing to hammer a dead connection for the rest of the
+                # batch, or letting the exception kill the whole process.
+                logger.warning("index snapshot %s/%s: %s — reconnecting", store, pid, exc)
+                try:
+                    db.close()
+                except Exception:
+                    pass
+                db = market_core.get_db()
+                try:
+                    _resolve_and_link(svc, db, row, dry_run=dry_run, stats=stats)
+                    if not dry_run:
+                        db.commit()
+                except Exception as exc2:
+                    stats["errors"] += 1
+                    logger.debug("index snapshot %s/%s: retry failed: %s", store, pid, exc2)
     finally:
         db.close()
 
