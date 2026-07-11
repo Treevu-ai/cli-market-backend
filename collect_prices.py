@@ -572,6 +572,12 @@ if USE_PG:
             ensure_collector_runs_columns()
         except Exception as e:
             logger.warning("collector_runs migration skipped: %s", e)
+        try:
+            from stock_history_schema import ensure_stock_history_table
+
+            ensure_stock_history_table()
+        except Exception as e:
+            logger.warning("stock_history migration skipped: %s", e)
 
     async def pg_insert(conn, prod):
         from price_confidence import compute_snapshot_confidence
@@ -598,6 +604,12 @@ if USE_PG:
                 queried_at=NOW()
         """, prod["product_id"],prod["name"],prod["brand"],prod["price"],prod["list_price"],discount,
            prod["store"],prod["store_name"],prod["currency"],prod["line"],prod["line_name"],prod["category"],prod["stock"],prod["url"], confidence)
+
+        stock = prod.get("stock")
+        await conn.execute(
+            "INSERT INTO stock_history (product_id, store, in_stock) VALUES ($1, $2, $3)",
+            prod["product_id"], prod["store"], 1 if (stock and stock > 0) else 0,
+        )
 
     async def pg_health(conn, store, ok):
         if ok:
@@ -642,12 +654,21 @@ def get_db_unified():
         ensure_collector_runs_columns()
     except Exception as e:
         logger.warning("collector_runs migration skipped: %s", e)
+    try:
+        from stock_history_schema import ensure_stock_history_table
+
+        ensure_stock_history_table()
+    except Exception as e:
+        logger.warning("stock_history migration skipped: %s", e)
     return get_db()
 
 def sq_insert(db, prod):
     from market_core import save_price_snapshot
+    from stock_history_schema import append_stock_history
 
     save_price_snapshot(prod, db=db)
+    stock = prod.get("stock")
+    append_stock_history(db, prod["product_id"], prod["store"], bool(stock and stock > 0))
 
 def sq_health(db, store, ok):
     if ok:
