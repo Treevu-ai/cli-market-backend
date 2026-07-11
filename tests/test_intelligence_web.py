@@ -86,6 +86,64 @@ def test_embed_commerce_pulse_route(sample_pulse, monkeypatch):
     assert "embed" in response.text
 
 
+def test_load_pulse_reads_shared_cache_without_live_compute(isolated_db, monkeypatch):
+    """The core fix: a request must be served from the shared DB cache, never
+    from a live computation, once the collector has written a row -- this is
+    what makes /intelligence fast regardless of which Fly machine (or how
+    cold its in-process cache) handles the request."""
+    from commerce_pulse_cache import ensure_commerce_pulse_cache_table, write_pulse_cache
+    from market_core import get_db
+    from routers.intelligence_web import _load_pulse, _pulse_cache
+
+    _pulse_cache.clear()
+
+    db = get_db()
+    try:
+        ensure_commerce_pulse_cache_table(db)
+        write_pulse_cache(db, "PE", "es", {"country": "PE", "headline": "from shared cache"})
+        db.commit()
+    finally:
+        db.close()
+
+    def boom(*a, **k):
+        raise AssertionError("must not compute live when the shared cache has a row")
+
+    monkeypatch.setattr("market_pulse.generate_commerce_pulse", boom)
+
+    result = _load_pulse("PE", "es")
+    assert result["headline"] == "from shared cache"
+
+
+def test_load_pulse_bootstraps_and_persists_on_true_cold_start(isolated_db, monkeypatch):
+    """No row anywhere (brand new country/lang the collector hasn't covered
+    yet) -- falls back to one live compute, and persists it so the NEXT
+    request hits the shared cache instead of computing again."""
+    from commerce_pulse_cache import read_pulse_cache
+    from market_core import get_db
+    from routers.intelligence_web import _load_pulse, _pulse_cache
+
+    _pulse_cache.clear()
+    calls = []
+
+    def fake_generate(*, country, days, lang, dashboard):
+        calls.append((country, lang))
+        return {"country": country, "headline": "freshly computed"}
+
+    monkeypatch.setattr("market_pulse.generate_commerce_pulse", fake_generate)
+    monkeypatch.setattr("routers.dashboard.get_cached_dashboard_data", lambda: {})
+
+    result = _load_pulse("CL", "es")
+    assert result["headline"] == "freshly computed"
+    assert len(calls) == 1
+
+    db = get_db()
+    try:
+        persisted = read_pulse_cache(db, "CL", "es")
+    finally:
+        db.close()
+    assert persisted["headline"] == "freshly computed"
+
+
 def test_intelligence_data_json(sample_pulse, monkeypatch):
     from fastapi.testclient import TestClient
 

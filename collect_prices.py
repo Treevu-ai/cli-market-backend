@@ -1231,6 +1231,16 @@ async def main():
                         print(f"  🔔 Alerts: {fired} fired")
                 except Exception as _ae:
                     print(f"  ⚠ Alert evaluation skipped: {_ae}")
+                # Refresh the shared /intelligence pulse cache every cycle so
+                # every Fly machine serves the same fresh-enough snapshot
+                # instantly instead of each machine computing it live on its
+                # own cold in-memory cache.
+                try:
+                    from commerce_pulse_cache import refresh_all
+                    pulse_result = refresh_all()
+                    print(f"  📰 Pulse cache refreshed: {pulse_result['written']} written, {pulse_result['errors']} errors")
+                except Exception as _pe:
+                    print(f"  ⚠ Pulse cache refresh skipped: {_pe}")
                 if USE_PG and pool:
                     cat_count = await run_full_catalog_pg(pool, stores)
                     if cat_count:

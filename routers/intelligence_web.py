@@ -19,17 +19,50 @@ _pulse_cache: dict[str, dict] = {}
 
 
 def _load_pulse(country: str, lang: str = "es") -> dict:
-    from market_pulse import generate_commerce_pulse
+    """Serve the commerce pulse for country+lang.
 
-    from routers.dashboard import get_cached_dashboard_data
+    Three layers, fastest first:
+    1. In-process dict -- avoids a DB round trip on repeat requests within
+       the same warm worker.
+    2. Shared commerce_pulse_cache table -- written every ~4h by the
+       collector daemon, read here regardless of age. This is what makes a
+       request never block on live computation: every Fly machine reads the
+       same row, so a cold machine or a fresh deploy is still instant.
+    3. Live compute -- cold-start bootstrap ONLY, for a country+lang the
+       collector has never written yet (e.g. brand new country). Persists
+       its result so every subsequent request hits layer 2 instead.
+    """
+    from market_core import get_db
+
+    from commerce_pulse_cache import (
+        ensure_commerce_pulse_cache_table,
+        read_pulse_cache,
+        write_pulse_cache,
+    )
 
     cc = (country or "PE").strip().upper()[:2]
     language = "en" if lang.lower().startswith("en") else "es"
     key = f"{cc}:{language}"
     now = time.time()
+
     entry = _pulse_cache.get(key)
     if entry and now - entry["ts"] < _PULSE_TTL:
         return dict(entry["data"])
+
+    db = get_db()
+    try:
+        ensure_commerce_pulse_cache_table(db)
+        cached = read_pulse_cache(db, cc, language)
+    finally:
+        db.close()
+    if cached is not None:
+        _pulse_cache[key] = {"data": cached, "ts": now}
+        return dict(cached)
+
+    from market_pulse import generate_commerce_pulse
+
+    from routers.dashboard import get_cached_dashboard_data
+
     pulse = generate_commerce_pulse(
         country=cc,
         days=7,
@@ -37,6 +70,15 @@ def _load_pulse(country: str, lang: str = "es") -> dict:
         dashboard=get_cached_dashboard_data(),
     )
     pulse.pop("brief", None)
+
+    db = get_db()
+    try:
+        ensure_commerce_pulse_cache_table(db)
+        write_pulse_cache(db, cc, language, pulse)
+        db.commit()
+    finally:
+        db.close()
+
     _pulse_cache[key] = {"data": pulse, "ts": now}
     return pulse
 
