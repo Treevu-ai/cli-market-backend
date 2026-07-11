@@ -25,6 +25,8 @@ query.py
 
 # local secret dumps / scratch files — never commit
 fly-secrets*.env
+fly.toml
+fly.collector.toml
 fly.toml.bak
 deploy_log.txt
 logs.txt
