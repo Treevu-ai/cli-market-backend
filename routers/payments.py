@@ -31,11 +31,14 @@ import uuid
 
 from fastapi import APIRouter, Body, Header, HTTPException, Request
 
+from dataclasses import asdict
+
 from market_core import (
     db_claim_webhook_event,
     db_delete_billing_pending,
     db_find_order_by_gateway_ref,
     db_find_order_by_id,
+    db_find_order_by_idempotency_key,
     db_get_billing_pending,
     db_create_subscription_request,
     db_mark_subscription_request_emailed,
@@ -53,7 +56,9 @@ from pre_checkout_validate import pre_checkout_validate
 from market_core.market_billing import (
     FOUNDING_PROMO_CODE,
     FOUNDING_SEAT_LIMIT,
+    check_budget,
     db_record_promo_redemption,
+    db_set_budget,
     founding_seats_remaining,
     normalize_billing_plan,
     price_label_for_plan,
@@ -86,8 +91,22 @@ def _prepare_pending_order(
         raise HTTPException(status_code=409, detail=validation.to_dict())
 
     total = validation.validated_total
-    order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
     idem = (idempotency_key or "").strip() or None
+
+    # Skip the budget check on an idempotent retry of an already-created
+    # order -- that spend is already counted in the running total, so
+    # checking again here would double-count it and could wrongly block a
+    # legitimate retry that was already fine the first time.
+    is_replay = bool(idem) and db_find_order_by_idempotency_key(username, idem) is not None
+    if not is_replay:
+        budget = check_budget(username, total)
+        if not budget.ok:
+            raise HTTPException(
+                status_code=409,
+                detail={"error": "budget_exceeded", **asdict(budget)},
+            )
+
+    order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
     created = db_create_order(
         username,
         cart,
@@ -124,6 +143,33 @@ def checkout_validate(authorization: str | None = Header(None)):
     if not result.ok:
         raise HTTPException(status_code=409, detail=result.to_dict())
     return result.to_dict()
+
+
+@router.get("/checkout/budget")
+def get_checkout_budget(
+    period: str = "monthly",
+    authorization: str | None = Header(None),
+):
+    """Dry-run: the caller's own cap/spent/remaining for a period, or
+    ok=true with no cap if they've never set one (opt-in feature)."""
+    username = require_api_key(authorization)
+    result = check_budget(username, 0.0, period)
+    return asdict(result)
+
+
+@router.post("/checkout/budget")
+def set_checkout_budget(
+    period: str = Body(...),
+    amount: float = Body(...),
+    currency: str = Body("PEN"),
+    authorization: str | None = Header(None),
+):
+    """Create or update the caller's own spend cap for a period."""
+    username = require_api_key(authorization)
+    try:
+        return db_set_budget(username, period, amount, currency)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 def _parse_market_order_ref(resource: dict) -> str | None:
