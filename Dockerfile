@@ -14,7 +14,7 @@ ARG GH_TOKEN
 ARG CACHE_BUST=2026-07-13-core-1.11.42
 
 COPY requirements.txt requirements-private.txt .
-RUN set -eux; \
+RUN set -eu; \
     echo "cache_bust=${CACHE_BUST}"; \
     INDEX_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"; \
     if [ -z "${INDEX_TOKEN}" ]; then \
