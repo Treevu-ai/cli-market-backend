@@ -351,8 +351,19 @@ async def _search_products(body: SearchRequest):
 
     results = _truncate_per_store(results, body.limit)
     results.sort(key=lambda p: p["price"] if p["price"] > 0 else float("inf"))
-    for p in results:
-        save_price_snapshot(p)
+    # save_price_snapshot(p) with no `db` opens/commits/closes its OWN
+    # connection per call — fine for a single write, a 20-50 round trip
+    # anti-pattern for a whole search result (2026-07-13 incident: this was
+    # the dominant remaining cost after the resolver/enrichment fixes).
+    # One shared connection, one commit — same pattern collect_prices.py's
+    # sq_insert already uses for its own batch writes.
+    snapshot_db = get_db()
+    try:
+        for p in results:
+            save_price_snapshot(p, db=snapshot_db)
+        snapshot_db.commit()
+    finally:
+        snapshot_db.close()
     save_search_query(body.query, body.line, body.store, len(results))
 
     # ── Index Enrichment ──
