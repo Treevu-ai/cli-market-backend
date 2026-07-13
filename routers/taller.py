@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import uuid
 
 from fastapi import APIRouter, HTTPException
 
@@ -34,7 +35,7 @@ def _ensure_schema() -> None:
     if market_core.USE_PG:
         db.execute("""
             CREATE TABLE IF NOT EXISTS taller_registrations (
-                id SERIAL PRIMARY KEY,
+                id TEXT PRIMARY KEY,
                 nombre TEXT NOT NULL,
                 email TEXT NOT NULL,
                 telefono TEXT NOT NULL,
@@ -46,7 +47,7 @@ def _ensure_schema() -> None:
     else:
         db.execute("""
             CREATE TABLE IF NOT EXISTS taller_registrations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 nombre TEXT NOT NULL,
                 email TEXT NOT NULL,
                 telefono TEXT NOT NULL,
@@ -59,15 +60,18 @@ def _ensure_schema() -> None:
     db.close()
 
 
-def _insert_registration(*, nombre: str, email: str, telefono: str, pago: str, comentario: str) -> int:
+def _insert_registration(*, nombre: str, email: str, telefono: str, pago: str, comentario: str) -> str:
+    """Generates the id in Python (like retailer_applications' RET-<uuid>)
+    instead of relying on cursor.lastrowid — psycopg2 never populates it,
+    so it silently returned 0 for every Postgres (production) insert."""
     _ensure_schema()
+    reg_id = f"TALLER-{uuid.uuid4().hex[:8].upper()}"
     db = get_db()
-    cur = db.execute(
-        "INSERT INTO taller_registrations (nombre, email, telefono, pago, comentario) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (nombre, email, telefono, pago, comentario),
+    db.execute(
+        "INSERT INTO taller_registrations (id, nombre, email, telefono, pago, comentario) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (reg_id, nombre, email, telefono, pago, comentario),
     )
-    reg_id = getattr(cur, "lastrowid", None) or 0
     db.commit()
     db.close()
     return reg_id
