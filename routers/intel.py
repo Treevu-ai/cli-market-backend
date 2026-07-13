@@ -532,3 +532,71 @@ def download_price_pulse_report(job_id: str, authorization: str | None = Header(
     if not path or not Path(path).is_file():
         raise HTTPException(status_code=404, detail="Report file missing")
     return FileResponse(path, media_type="text/markdown", filename=Path(path).name)
+
+
+# ── Previously "Unknown tool" in /mcp — registered in cli-market-core's MCP
+# schema and dispatcher, but this REST layer never implemented them. Core
+# already ships the compute_* functions (used by its own optional
+# market_core.api_routes.router); wired directly here rather than mounting
+# that whole router, which would collide with several paths this file
+# already implements independently (e.g. /v1/intel/alerts, /v1/household). ──
+
+@router.get("/v1/intel/price-risk")
+def intel_price_risk(
+    country: str | None = None,
+    line: str | None = None,
+    days: int = 7,
+    authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
+):
+    """Price Risk Intelligence — which categories are becoming volatile?"""
+    require_api_key(authorization)
+    from market_core.market_intel_products import compute_price_risk
+
+    return compute_price_risk(db, country=country, line=line, days=days)
+
+
+@router.get("/v1/intel/informal-signal")
+def intel_informal_signal(
+    country: str,
+    line: str = "supermercados",
+    authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
+):
+    """Coverage-honesty signal — formal channels only, no informal-economy estimate."""
+    require_api_key(authorization)
+    from market_core.market_informal_signal import compute_informal_signal
+
+    return compute_informal_signal(db, country=country, line=line)
+
+
+@router.get("/v1/intel/promo-detector")
+def intel_promo_detector(
+    product: str,
+    store: str | None = None,
+    days: int = 30,
+    authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
+):
+    """Promo authenticity — flags discounts staged via recent list-price inflation."""
+    require_api_key(authorization)
+    from market_core.market_promo_detector import compute_promo_authenticity
+
+    return compute_promo_authenticity(db, product=product, store=store, days=days)
+
+
+@router.get("/v1/intel/retailer-scorecard")
+def intel_retailer_scorecard(
+    store: str,
+    days: int = 30,
+    authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
+):
+    """Retailer scorecard — coverage/freshness, catalog quality, and price volatility for one store."""
+    require_api_key(authorization)
+    from market_core.market_retailer_scorecard import compute_retailer_scorecard
+
+    try:
+        return compute_retailer_scorecard(db, store=store, days=days)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

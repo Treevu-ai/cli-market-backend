@@ -107,3 +107,77 @@ def test_market_price_history_no_longer_unknown_tool():
 
     assert result != {"error": "Unknown tool: market_price_history"}
     assert result == {"snapshots": [{"price": 5.2, "store": "wong_pe"}]}
+
+
+def test_market_price_risk_no_longer_hits_alerts_endpoint():
+    """market_price_risk was routed to /v1/intel/alerts (market_price_alerts'
+    endpoint, which requires a mandatory `product` param market_price_risk's
+    own schema doesn't have) -> every call 422'd. Must hit /v1/intel/price-risk."""
+    from routers.mcp_http import _call_tool
+
+    price_risk_url = _api_url("/v1/intel/price-risk")
+    alerts_url = _api_url("/v1/intel/alerts")
+    responses = {
+        price_risk_url: _mock_response(200, {"risk_level": "moderate"}),
+        alerts_url: _mock_response(422, text="field required: product"),
+    }
+
+    with patch("routers.mcp_http.httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=_mock_client(responses))
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = asyncio.run(_call_tool("market_price_risk", {"country": "PE"}, "sk-test"))
+
+    assert result == {"risk_level": "moderate"}
+
+
+def test_market_informal_signal_no_longer_unknown_tool():
+    from routers.mcp_http import _call_tool
+
+    url = _api_url("/v1/intel/informal-signal")
+    responses = {url: _mock_response(200, {"confidence": "low"})}
+
+    with patch("routers.mcp_http.httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=_mock_client(responses))
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = asyncio.run(_call_tool("market_informal_signal", {"country": "PE"}, "sk-test"))
+
+    assert result != {"error": "Unknown tool: market_informal_signal"}
+    assert result == {"confidence": "low"}
+
+
+def test_market_promo_detector_no_longer_unknown_tool():
+    from routers.mcp_http import _call_tool
+
+    url = _api_url("/v1/intel/promo-detector")
+    responses = {url: _mock_response(200, {"authentic": True})}
+
+    with patch("routers.mcp_http.httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=_mock_client(responses))
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = asyncio.run(
+            _call_tool("market_promo_detector", {"product": "aceite"}, "sk-test")
+        )
+
+    assert result != {"error": "Unknown tool: market_promo_detector"}
+    assert result == {"authentic": True}
+
+
+def test_market_retailer_scorecard_no_longer_unknown_tool():
+    from routers.mcp_http import _call_tool
+
+    url = _api_url("/v1/intel/retailer-scorecard")
+    responses = {url: _mock_response(200, {"score": 82})}
+
+    with patch("routers.mcp_http.httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=_mock_client(responses))
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = asyncio.run(
+            _call_tool("market_retailer_scorecard", {"store": "wong_pe"}, "sk-test")
+        )
+
+    assert result != {"error": "Unknown tool: market_retailer_scorecard"}
+    assert result == {"score": 82}
