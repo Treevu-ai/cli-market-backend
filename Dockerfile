@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 # ── CLI Market LATAM — Backend Dockerfile ──
 FROM python:3.12-slim
 
@@ -7,18 +9,19 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev git tesseract-ocr tesseract-ocr-spa && rm -rf /var/lib/apt/lists/*
 
-# Private cli-market-index clone during pip install.
-# Fly.io → API service → `fly secrets set`: GITHUB_TOKEN or GH_TOKEN (PAT, repo read on cli-market-index).
-ARG GITHUB_TOKEN
-ARG GH_TOKEN
 ARG CACHE_BUST=2026-07-13-core-1.11.42
 
 COPY requirements.txt requirements-private.txt .
-RUN set -eu; \
+# Private cli-market-index clone during pip install. Token comes in via a
+# BuildKit secret mount (deploy: --build-secret id=github_token,src=<file>),
+# never an ARG — BuildKit echoes ARG-interpolated RUN commands into its own
+# progress log verbatim regardless of what the shell script does internally
+# (set -x/-e had no effect on that leak; it's BuildKit itself, not the shell).
+RUN --mount=type=secret,id=github_token set -eu; \
     echo "cache_bust=${CACHE_BUST}"; \
-    INDEX_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"; \
+    INDEX_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)"; \
     if [ -z "${INDEX_TOKEN}" ]; then \
-      echo "error: set GITHUB_TOKEN or GH_TOKEN on Fly.io for cli-market-index (git+https)" >&2; \
+      echo "error: pass the GitHub token via --build-secret id=github_token,src=<file> for cli-market-index (git+https)" >&2; \
       exit 1; \
     fi; \
     git config --global url."https://x-access-token:${INDEX_TOKEN}@github.com/".insteadOf "https://github.com/"; \
