@@ -245,6 +245,7 @@ from routers.retailer_admin import router as retailer_admin_router
 from routers.discovery import router as discovery_router
 from routers.mcp_http import router as mcp_http_router
 from routers.search import router as search_router
+from routers.taller import router as taller_router
 
 # Order doesn't matter functionally — each router declares its own paths.
 # Listed alphabetically by router file for easy navigation.
@@ -275,6 +276,7 @@ for r in (
     retailers_router,
     retailer_admin_router,
     search_router,
+    taller_router,
 ):
     app.include_router(r)
 
