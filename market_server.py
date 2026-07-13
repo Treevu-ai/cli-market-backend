@@ -161,6 +161,36 @@ async def lifespan(_app: FastAPI):
         logger.warning("JSON migration skipped: %s", e)
     for warning in production_payment_config_warnings():
         logger.warning("Payment security: %s", warning)
+    try:
+        # Building IndexService's in-memory registry (20k+ products,
+        # loaded from Postgres) + the category/brand match index used to
+        # happen lazily on whichever request first touched enrich_list()
+        # — a one-time ~39s cold-start tax paid by a real user's request
+        # on every freshly-deployed/restarted machine (2026-07-13
+        # incident: /products/search "no contesta" reappeared per-machine
+        # after the deploy that fixed its steady-state latency).
+        #
+        # Fired as a background task, NOT awaited here — fly.toml's health
+        # check has only a 15s grace_period, far shorter than the ~39s this
+        # takes, so blocking startup on it would get this machine killed as
+        # unhealthy before it ever finishes. Worst case (a real request
+        # races ahead of this task) falls back to _get_service()'s existing
+        # lazy build — no worse than before this warm-up existed.
+        import asyncio
+        import time as _time
+        from index_gate import _get_service
+
+        async def _warm_index():
+            t0 = _time.monotonic()
+            try:
+                svc = await asyncio.to_thread(_get_service)
+                logger.info("Index warmed at startup: %d products in %.1fs", svc.size, _time.monotonic() - t0)
+            except Exception as e:
+                logger.warning("Index warm-up failed (will build lazily on first request): %s", e)
+
+        asyncio.create_task(_warm_index())
+    except Exception as e:
+        logger.warning("Index warm-up scheduling skipped: %s", e)
     yield
 
 
