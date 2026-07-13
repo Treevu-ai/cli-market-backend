@@ -178,7 +178,24 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
         elif name == "market_trending":
             r = await client.get(f"{_API_BASE}/analytics/trending", params={k: v for k, v in args.items() if v is not None}, headers=headers)
         elif name == "market_discover":
-            r = await client.get(f"{_API_BASE}/analytics/trending", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+            # Composes lines + stores + countries in one call — mirrors
+            # cli-market-core's _discover_api. Was previously wired to
+            # /analytics/trending (a market_trending copy-paste), so it
+            # silently returned trending data instead of coverage.
+            store_params = {k: v for k, v in {"country": args.get("country"), "line": args.get("line")}.items() if v is not None}
+            lines_r, stores_r, countries_r = await asyncio.gather(
+                client.get(f"{_API_BASE}/lines", headers=headers),
+                client.get(f"{_API_BASE}/stores", params=store_params, headers=headers),
+                client.get(f"{_API_BASE}/countries", headers=headers),
+            )
+            for resp in (lines_r, stores_r, countries_r):
+                if resp.status_code >= 400:
+                    return {"error": f"HTTP {resp.status_code}", "detail": resp.text[:200]}
+            return {
+                "lines": lines_r.json(),
+                "stores": stores_r.json(),
+                "countries": countries_r.json(),
+            }
         elif name == "market_barcode":
             code = args.get("code", "")
             r = await client.get(f"{_API_BASE}/products/barcode/{code}", headers=headers)
@@ -262,6 +279,13 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
             r = await client.get(f"{_API_BASE}/v1/products/substitutes", params={k: v for k, v in args.items() if v is not None}, headers=headers)
         elif name == "market_optimize_purchase":
             r = await client.post(f"{_API_BASE}/v1/missions/optimize-purchase", json=args, headers=headers)
+        elif name == "market_price_history":
+            # Was entirely absent from this dispatch -> fell to "Unknown
+            # tool" despite being fully registered in cli-market-core and
+            # despite the target REST endpoint already existing.
+            params = {k: v for k, v in args.items() if v is not None}
+            params.setdefault("limit", 50)
+            r = await client.get(f"{_API_BASE}/analytics/price-history", params=params, headers=headers)
         else:
             return {"error": f"Unknown tool: {name}"}
 
