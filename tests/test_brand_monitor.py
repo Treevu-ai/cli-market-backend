@@ -32,6 +32,11 @@ def _seed(db):
         ("c1_wong", "Arroz Costeño 1kg", "costeno", "wong_pe", "Wong", 4.5, 5.5, 18, None),
         # A third brand — should not appear when explicit competitors= is passed.
         ("c2_wong", "Arroz Faraon 1kg", "faraon", "wong_pe", "Wong", 4.0, 4.0, 0, None),
+        # Implausible internal spread (>3x) under one canonical id — a bundle
+        # listing whose price varies with promo state, not real cross-store
+        # dispersion. dispersion_score must come back null, not fabricated.
+        ("p3_wong", "Arroz Paisana 750g Pack Promo", "paisana", "wong_pe", "Wong", 3.0, 3.0, 0, "prod_paisana_arroz_750g"),
+        ("p3_pv", "Arroz Paisana 750g Pack Promo", "paisana", "plaza_vea_pe", "Plaza Vea", 15.0, 15.0, 0, "prod_paisana_arroz_750g"),
     ]
     for pid, name, brand, store, store_name, price, list_price, discount, canonical in rows:
         db.execute(
@@ -66,7 +71,7 @@ def test_brand_monitor_returns_my_and_competitor_skus_with_dispersion(pe_store, 
         )
 
     assert result["summary"]["brand"] == "paisana"
-    assert result["summary"]["my_skus_count"] == 3
+    assert result["summary"]["my_skus_count"] == 5
     assert result["summary"]["competitor_skus_count"] == 1
     assert result["summary"]["competitor_skus_with_promo"] == 1
     assert result["summary"]["competitors_found"] == ["costeno"]
@@ -76,6 +81,9 @@ def test_brand_monitor_returns_my_and_competitor_skus_with_dispersion(pe_store, 
     by_id = {r["product_id"]: r for r in result["my_skus"]}
     assert by_id["prod_paisana_arroz_1kg"]["dispersion_score"] is not None
     assert by_id["prod_paisana_arroz_5kg"]["dispersion_score"] is None
+    # >3x internal spread (S/3.0 vs S/15.0, same canonical id) is an
+    # unreliable link, not real dispersion — must come back null.
+    assert by_id["prod_paisana_arroz_750g"]["dispersion_score"] is None
 
     competitor_row = result["competitor_skus"][0]
     assert competitor_row["promo_active"] is True

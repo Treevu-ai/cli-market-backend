@@ -172,6 +172,17 @@ def _effective_product_id(row: dict) -> str:
     return row.get("canonical_product_id") or row["product_id"]
 
 
+# A canonical group whose prices span more than this ratio (max/min) is
+# more likely a linking/scrape artifact (bundle listing whose contents
+# vary, stale promo price mixed with regular price) than real cross-store
+# price dispersion — confirmed 2026-07-13 against production gasificadas
+# data: 6/44 canonical groups had >3x internal spread, including bundle
+# SKUs like "Coca Cola 3L + Inca Kola..." whose price varies with promo
+# state, not retailer pricing strategy. Treat those as unreliable rather
+# than reporting a fabricated dispersion number.
+_MAX_PLAUSIBLE_SPREAD_RATIO = 3.0
+
+
 def _build_sku_rows(rows: list[dict]) -> list[dict]:
     groups: dict[str, list[dict]] = {}
     for r in rows:
@@ -185,7 +196,8 @@ def _build_sku_rows(rows: list[dict]) -> list[dict]:
         if len({p["store"] for p in peers}) >= 2:
             prices = [p["price"] for p in peers if p.get("price")]
             if len(prices) >= 2 and (mean := statistics.mean(prices)) > 0:
-                dispersion = round(statistics.pstdev(prices) / mean, 4)
+                if max(prices) / min(prices) <= _MAX_PLAUSIBLE_SPREAD_RATIO:
+                    dispersion = round(statistics.pstdev(prices) / mean, 4)
         discount = r.get("discount") or 0
         out.append({
             "product_id": key,
