@@ -6,9 +6,13 @@ Endpoints:
   GET /analytics/trending        Recent products (placeholder — sorted by queried_at)
   GET /analytics/brands          Top brands by snapshot count
   GET /analytics/indicators      Latest moat indicator values
+  GET /v1/brand-monitor          Cross-store SKU snapshot for a brand + competitors
 """
 
 from __future__ import annotations
+
+import statistics
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header
 
@@ -18,6 +22,20 @@ from server_deps import get_db_dep, require_api_key
 from index_gate import enrich_list
 
 router = APIRouter(tags=["analytics"])
+
+
+def _country_stores(country: str | None) -> list[str] | None:
+    """Store keys for a country, or None when no country filter was requested."""
+    if not country:
+        return None
+    return [
+        s for s, sv in STORES.items()
+        if sv.get("country", "").upper() == country.upper() and not sv.get("disabled")
+    ]
+
+
+def _since_iso(days: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=max(1, days))).strftime("%Y-%m-%d %H:%M:%S")
 
 
 @router.get("/analytics/price-history")
@@ -110,6 +128,12 @@ def analytics_brands(line: str | None = None, country: str | None = None, limit:
     if line:
         q += " AND line = ?"
         params.append(line)
+    country_stores = _country_stores(country)
+    if country and not country_stores:
+        return {"brands": [], "total": 0}
+    if country_stores:
+        q += f" AND store IN ({','.join('?' * len(country_stores))})"
+        params.extend(country_stores)
     q += " GROUP BY brand ORDER BY count DESC LIMIT ?"
     params.append(limit)
     rows = db.execute(q, params).fetchall()
@@ -134,3 +158,130 @@ def analytics_indicators(
         "line": line,
         "indicators": values,
     }
+
+
+def _effective_product_id(row: dict) -> str:
+    """canonical_product_id when linked, else the store-local product_id.
+
+    Cross-store price comparison only works on the shared (canonical) id —
+    raw product_id is retailer-internal and differs per store. Falling back
+    to the raw id when there's no Golden Record link just means that SKU
+    won't cross-match, which is the correct, honest behavior (single-store
+    SKUs get a null dispersion_score below, not a fabricated one).
+    """
+    return row.get("canonical_product_id") or row["product_id"]
+
+
+def _build_sku_rows(rows: list[dict]) -> list[dict]:
+    groups: dict[str, list[dict]] = {}
+    for r in rows:
+        groups.setdefault(_effective_product_id(r), []).append(r)
+
+    out: list[dict] = []
+    for r in rows:
+        key = _effective_product_id(r)
+        peers = groups[key]
+        dispersion = None
+        if len({p["store"] for p in peers}) >= 2:
+            prices = [p["price"] for p in peers if p.get("price")]
+            if len(prices) >= 2 and (mean := statistics.mean(prices)) > 0:
+                dispersion = round(statistics.pstdev(prices) / mean, 4)
+        discount = r.get("discount") or 0
+        out.append({
+            "product_id": key,
+            "name": r["name"],
+            "brand": r["brand"],
+            "store": r["store"],
+            "store_name": r["store_name"],
+            "price": r["price"],
+            "list_price": r.get("list_price"),
+            "discount": discount or None,
+            "currency": r["currency"],
+            "promo_active": bool(discount and discount > 0),
+            "dispersion_score": dispersion,
+        })
+    return out
+
+
+@router.get("/v1/brand-monitor")
+def brand_monitor(
+    brand: str,
+    country: str | None = None,
+    line: str | None = None,
+    days: int = 30,
+    competitors: str | None = None,
+    limit: int = 200,
+    authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
+):
+    require_api_key(authorization)
+    """Cross-store SKU snapshot for one brand plus its declared or inferred
+    competitors — real price_snapshots data only, no fabricated fields.
+    Powers the pricing dashboard's comparator table, promo panel, and alerts.
+    """
+    country_stores = _country_stores(country)
+    if country and not country_stores:
+        return {
+            "summary": {
+                "brand": brand,
+                "my_skus_count": 0,
+                "my_skus_with_promo": 0,
+                "competitor_skus_count": 0,
+                "competitor_skus_with_promo": 0,
+                "stores_covered": 0,
+                "competitors_found": [],
+            },
+            "my_skus": [],
+            "competitor_skus": [],
+        }
+
+    since = _since_iso(days)
+
+    competitor_list = [c.strip() for c in competitors.split(",") if c.strip()] if competitors else []
+    if not competitor_list:
+        cq = (
+            "SELECT brand, COUNT(*) as count FROM price_snapshots "
+            "WHERE brand != '' AND brand != ? AND price > 0 AND queried_at >= ?"
+        )
+        cparams: list = [brand, since]
+        if line:
+            cq += " AND line = ?"
+            cparams.append(line)
+        if country_stores:
+            cq += f" AND store IN ({','.join('?' * len(country_stores))})"
+            cparams.extend(country_stores)
+        cq += " GROUP BY brand ORDER BY count DESC LIMIT 5"
+        competitor_list = [r["brand"] for r in db.execute(cq, cparams).fetchall()]
+
+    all_brands = [brand] + competitor_list
+    q = (
+        "SELECT product_id, name, brand, store, store_name, price, list_price, discount, "
+        "currency, canonical_product_id, queried_at FROM price_snapshots "
+        f"WHERE brand IN ({','.join('?' * len(all_brands))}) AND price > 0 AND queried_at >= ?"
+    )
+    params: list = list(all_brands) + [since]
+    if line:
+        q += " AND line = ?"
+        params.append(line)
+    if country_stores:
+        q += f" AND store IN ({','.join('?' * len(country_stores))})"
+        params.extend(country_stores)
+    q += " ORDER BY queried_at DESC LIMIT ?"
+    params.append(limit)
+    rows = [dict(r) for r in db.execute(q, params).fetchall()]
+
+    sku_rows = _build_sku_rows(rows)
+    my_skus = [r for r in sku_rows if r["brand"] == brand]
+    competitor_skus = [r for r in sku_rows if r["brand"] != brand]
+
+    summary = {
+        "brand": brand,
+        "my_skus_count": len(my_skus),
+        "my_skus_with_promo": sum(1 for r in my_skus if r["promo_active"]),
+        "competitor_skus_count": len(competitor_skus),
+        "competitor_skus_with_promo": sum(1 for r in competitor_skus if r["promo_active"]),
+        "stores_covered": len({r["store"] for r in sku_rows}),
+        "competitors_found": sorted({r["brand"] for r in competitor_skus}),
+    }
+
+    return {"summary": summary, "my_skus": my_skus, "competitor_skus": competitor_skus}
