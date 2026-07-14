@@ -284,13 +284,23 @@ def get_indicator(
 
 
 @router.get("/v1/intel/scores")
-def intel_scores(country: str | None = None, line: str | None = None, authorization: str | None = Header(None)):
+def intel_scores(
+    country: str | None = None,
+    line: str | None = None,
+    subcategory: str | None = None,
+    authorization: str | None = Header(None),
+):
     require_api_key(authorization)
-    """Composite scores blending moat signals and public macro data."""
-    _ck = ("scores", country, line)
+    """Composite scores blending moat signals and public macro data.
+
+    subcategory narrows below the line level (e.g. "bebidas" within
+    "supermercados") — see market_spread.infer_subcategory for the bucket
+    list. Omit for the existing whole-line blend.
+    """
+    _ck = ("scores", country, line, subcategory)
     if (cached := _cache_get(_ck)) is not None:
         return cached
-    result = compute_composite_scores(country=country, line=line)
+    result = compute_composite_scores(country=country, line=line, subcategory=subcategory)
     _cache_set(_ck, result)
     return result
 

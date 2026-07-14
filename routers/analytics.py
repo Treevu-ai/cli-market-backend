@@ -144,18 +144,25 @@ def analytics_brands(line: str | None = None, country: str | None = None, limit:
 def analytics_indicators(
     country: str | None = None,
     line: str | None = None,
+    subcategory: str | None = None,
     limit: int = 50,
     authorization: str | None = Header(None),
     db = Depends(get_db_dep),
 ):
     require_api_key(authorization)
-    """Latest indicator values from the data moat (internal + public API sources)."""
-    values = get_latest_values(db, country=country, line=line, limit=limit)
+    """Latest indicator values from the data moat (internal + public API sources).
+
+    subcategory narrows below line level — only indicators actually
+    refreshed with that subcategory (via /v1/intel/scores?subcategory=...)
+    will have matching rows; omit for the existing line-level view.
+    """
+    values = get_latest_values(db, country=country, line=line, limit=limit, subcategory=subcategory)
     return {
         "count": len(values),
         "catalog_size": len(get_indicator_catalog()),
         "country": country,
         "line": line,
+        "subcategory": subcategory,
         "indicators": values,
     }
 
