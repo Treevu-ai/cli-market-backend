@@ -236,7 +236,10 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
             basket_args = {"include_tco": True, **args}
             r = await client.post(f"{_API_BASE}/v1/basket/compare", json=basket_args, headers=headers)
         elif name == "market_procurement_signal":
-            r = await client.get(f"{_API_BASE}/v1/intel/basket-stress", params={"country": args.get("country")}, headers=headers)
+            # Was routed to /v1/intel/basket-stress (never a real route in
+            # prod) instead of the dedicated procurement-signal endpoint —
+            # same copy-paste class as the market_price_risk fix above.
+            r = await client.get(f"{_API_BASE}/v1/intel/procurement-signal", params={k: v for k, v in args.items() if v is not None}, headers=headers)
         elif name == "market_price_risk":
             # Was routed to /v1/intel/alerts (market_price_alerts' endpoint,
             # which requires a mandatory `product` param that market_price_risk's
@@ -252,7 +255,15 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
         elif name == "market_favorites":
             r = await client.post(f"{_API_BASE}/favorites", json=args, headers=headers)
         elif name == "market_price_alerts":
-            r = await client.get(f"{_API_BASE}/v1/alerts", headers=headers)
+            # Was hitting /v1/alerts (the user's saved-alert subscriptions,
+            # no query params forwarded) instead of /v1/intel/alerts (the
+            # actual product/threshold discount query) — always returned an
+            # empty list regardless of what was asked.
+            r = await client.get(
+                f"{_API_BASE}/v1/intel/alerts",
+                params={k: v for k, v in args.items() if v is not None},
+                headers=headers,
+            )
         elif name == "market_export":
             r = await client.post(f"{_API_BASE}/v1/data/export", json=args, headers=headers)
         elif name == "market_ask":
