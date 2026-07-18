@@ -15,6 +15,7 @@ Endpoints:
   POST /admin/cron/gov-sisap   Refresh SISAP canasta básica retail prices (daily cron)
   POST /admin/cron/gov-wto     Refresh WTO Peru merchandise exports/imports (daily cron)
   POST /admin/cron/gov-comtrade Refresh UN Comtrade Peru merchandise exports/imports (daily cron)
+  POST /admin/cron/gov-bcb     Refresh Banco Central do Brasil USD/BRL + IPCA (daily cron)
 
 Protected with MARKET_API_TOKEN (Bearer). Set on Fly.io before exposing publicly.
 """
@@ -474,4 +475,21 @@ async def admin_cron_gov_comtrade(authorization: str | None = Header(None)):
     from index_gate import collect_gov_comtrade
 
     return await collect_gov_comtrade()
+
+
+@router.post("/admin/cron/gov-bcb")
+async def admin_cron_gov_bcb(authorization: str | None = Header(None)):
+    """Refresh Banco Central do Brasil USD/BRL exchange rate + IPCA monthly
+    variation (daily cron).
+
+    Fifth gov connector, first source outside Peru. No API key required —
+    the SGS API is fully public, unlike Comtrade/WTO's subscription keys.
+    Note: the underlying API blocks requests without a browser-like
+    User-Agent (Ministério da Fazenda WAF, not the SGS API itself) — the
+    connector sets one; see connectors/gov/adapters/bcb.py.
+    """
+    require_admin(authorization)
+    from index_gate import collect_gov_bcb
+
+    return await collect_gov_bcb()
 

@@ -165,6 +165,16 @@ async def collect_gov_comtrade() -> Dict[str, Any]:
     return await _collect_gov_source("comtrade_pe", UNComtradeConnector())
 
 
+async def collect_gov_bcb() -> Dict[str, Any]:
+    """Fetch Banco Central do Brasil (USD/BRL exchange rate + IPCA monthly
+    variation) into the semantic index. No API key required."""
+    if not _INDEX_AVAILABLE:
+        return {"ok": False, "error": "cli-market-index not installed", "resolved": 0}
+    from connectors.gov.adapters.bcb import BCBConnector
+
+    return await _collect_gov_source("bcb_br", BCBConnector())
+
+
 def _brand_slug(product: Any) -> str:
     brand = product.brand
     if isinstance(brand, str):
