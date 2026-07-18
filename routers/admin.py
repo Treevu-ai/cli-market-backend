@@ -12,6 +12,7 @@ Endpoints:
   POST /admin/cron/indicators-refresh  Refresh moat indicators (internal + macro + Phase 2)
   POST /admin/cron/commerce-pulse  Generate Agentic Commerce Pulse reports (weekly)
   POST /admin/cron/gov-bcrp    Refresh BCRP official exchange rate + IPC (daily cron)
+  POST /admin/cron/gov-sisap   Refresh SISAP canasta básica retail prices (daily cron)
 
 Protected with MARKET_API_TOKEN (Bearer). Set on Fly.io before exposing publicly.
 """
@@ -424,4 +425,20 @@ async def admin_cron_gov_bcrp(authorization: str | None = Header(None)):
     from index_gate import collect_gov_bcrp
 
     return await collect_gov_bcrp()
+
+
+@router.post("/admin/cron/gov-sisap")
+async def admin_cron_gov_sisap(authorization: str | None = Header(None)):
+    """Refresh SISAP (MIDAGRI) canasta básica retail prices (daily cron).
+
+    Curated scope: arroz/aceite/azucar/huevos/leche across Lima + Piura,
+    Lambayeque, La Libertad, Cajamarca — the canasta staples that overlap
+    with FAO_COMMODITY_BY_CANASTA, queried for the 4 north-Peru regions the
+    PRD flags as highest impact. Independent, official-source regional price
+    signal alongside CLI Market's own shelf-price data for the same staples.
+    """
+    require_admin(authorization)
+    from index_gate import collect_gov_sisap
+
+    return await collect_gov_sisap()
 

@@ -89,18 +89,15 @@ def gov_observations(
         return []
 
 
-async def collect_gov_bcrp() -> Dict[str, Any]:
-    """Fetch BCRP (USD/PEN exchange rate + Lima IPC), resolve each
-    observation into the semantic index, same shape as certify_round() for
-    retail snapshots. Called by POST /admin/cron/gov-bcrp (external cron —
-    see cli-market-world's morning-ops-chain.yml — this repo has no
-    in-process scheduler, matching every other admin/cron/* endpoint)."""
+async def _collect_gov_source(source_key: str, connector: Any) -> Dict[str, Any]:
+    """Shared collect→resolve loop for a GovSourceConnector — same shape as
+    certify_round() for retail snapshots. Called by the POST /admin/cron/gov-*
+    endpoints (external cron — see cli-market-world's morning-ops-chain.yml —
+    this repo has no in-process scheduler, matching every other admin/cron/*
+    endpoint)."""
     if not _INDEX_AVAILABLE:
         return {"ok": False, "error": "cli-market-index not installed", "resolved": 0}
     try:
-        from connectors.gov.adapters.bcrp import BCRPConnector
-
-        connector = BCRPConnector()
         observations = await connector.collect()
         svc = _get_service()
         resolved = 0
@@ -112,17 +109,36 @@ async def collect_gov_bcrp() -> Dict[str, Any]:
                     resolved += 1
             except Exception as exc:
                 errors += 1
-                logger.warning("collect_gov_bcrp: failed to resolve %s: %s", obs.commodity_slug, exc)
+                logger.warning("_collect_gov_source(%s): failed to resolve %s: %s", source_key, obs.commodity_slug, exc)
         return {
             "ok": True,
-            "source": "bcrp_pe",
+            "source": source_key,
             "fetched": len(observations),
             "resolved": resolved,
             "errors": errors,
         }
     except Exception as exc:
-        logger.warning("collect_gov_bcrp failed: %s", exc)
+        logger.warning("_collect_gov_source(%s) failed: %s", source_key, exc)
         return {"ok": False, "error": str(exc), "resolved": 0}
+
+
+async def collect_gov_bcrp() -> Dict[str, Any]:
+    """Fetch BCRP (USD/PEN exchange rate + Lima IPC) into the semantic index."""
+    if not _INDEX_AVAILABLE:
+        return {"ok": False, "error": "cli-market-index not installed", "resolved": 0}
+    from connectors.gov.adapters.bcrp import BCRPConnector
+
+    return await _collect_gov_source("bcrp_pe", BCRPConnector())
+
+
+async def collect_gov_sisap() -> Dict[str, Any]:
+    """Fetch SISAP (MIDAGRI canasta básica retail prices, Lima + 4 north-Peru
+    regions) into the semantic index."""
+    if not _INDEX_AVAILABLE:
+        return {"ok": False, "error": "cli-market-index not installed", "resolved": 0}
+    from connectors.gov.adapters.sisap import SISAPConnector
+
+    return await _collect_gov_source("sisap_pe", SISAPConnector())
 
 
 def _brand_slug(product: Any) -> str:
