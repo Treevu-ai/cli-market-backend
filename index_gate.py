@@ -118,8 +118,12 @@ async def _collect_gov_source(source_key: str, connector: Any) -> Dict[str, Any]
             "errors": errors,
         }
     except Exception as exc:
-        logger.warning("_collect_gov_source(%s) failed: %s", source_key, exc)
-        return {"ok": False, "error": str(exc), "resolved": 0}
+        # str(exc) is empty for some httpx/httpcore exceptions (e.g.
+        # ConnectTimeout) — always include the exception type so a
+        # connectivity failure doesn't log as a blank, undiagnosable string.
+        detail = str(exc) or f"{type(exc).__name__} (no message)"
+        logger.warning("_collect_gov_source(%s) failed: %s", source_key, detail, exc_info=True)
+        return {"ok": False, "error": detail, "resolved": 0}
 
 
 async def collect_gov_bcrp() -> Dict[str, Any]:
