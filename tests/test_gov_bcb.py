@@ -1,8 +1,9 @@
-"""collect_gov_bcb() — Banco Central do Brasil (USD/BRL + IPCA) ingest/read.
+"""collect_gov_bcb() — Banco Central do Brasil (USD/BRL + IPCA + Selic) ingest/read.
 
 Fifth gov connector, same shape as test_gov_comtrade.py: POST /admin/cron/gov-bcb
 ingests, GET /v1/intel/gov-observations reads it back (source-agnostic).
 Unlike Comtrade/WTO, BCB needs no API key — no "missing key" test here.
+Selic (série 11) added same-day as a third series alongside FX + IPCA.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 _FX_PAYLOAD = [{"data": "17/07/2026", "valor": "5.1176"}]
 _IPCA_PAYLOAD = [{"data": "01/06/2026", "valor": "0.16"}]
+_SELIC_PAYLOAD = [{"data": "17/07/2026", "valor": "0.052531"}]
 
 
 @pytest.fixture
@@ -37,7 +39,7 @@ async def test_collect_gov_bcb_resolves_fx_and_ipca_observations(index_env, monk
     from connectors.gov.adapters import bcb as bcb_module
 
     async def fake_fetch(self):
-        return {"fx": _FX_PAYLOAD, "ipca": _IPCA_PAYLOAD}
+        return {"fx": _FX_PAYLOAD, "ipca": _IPCA_PAYLOAD, "selic": _SELIC_PAYLOAD}
 
     monkeypatch.setattr(bcb_module.BCBConnector, "fetch", fake_fetch)
 
@@ -45,8 +47,8 @@ async def test_collect_gov_bcb_resolves_fx_and_ipca_observations(index_env, monk
 
     assert result["ok"] is True
     assert result["source"] == "bcb_br"
-    assert result["fetched"] == 2
-    assert result["resolved"] == 2
+    assert result["fetched"] == 3
+    assert result["resolved"] == 3
     assert result["errors"] == 0
 
 
@@ -55,7 +57,7 @@ async def test_gov_observations_reads_back_bcb_data_without_colliding_with_bcrp_
     from connectors.gov.adapters import bcb as bcb_module
 
     async def fake_fetch(self):
-        return {"fx": _FX_PAYLOAD, "ipca": _IPCA_PAYLOAD}
+        return {"fx": _FX_PAYLOAD, "ipca": _IPCA_PAYLOAD, "selic": _SELIC_PAYLOAD}
 
     monkeypatch.setattr(bcb_module.BCBConnector, "fetch", fake_fetch)
     await index_env.collect_gov_bcb()
@@ -63,6 +65,10 @@ async def test_gov_observations_reads_back_bcb_data_without_colliding_with_bcrp_
     bcb_fx = index_env.gov_observations(commodity_slug="usdbrl_bcb_br")
     assert len(bcb_fx) == 1
     assert bcb_fx[0]["price"] == 5.1176
+
+    bcb_selic = index_env.gov_observations(commodity_slug="selic_bcb_br")
+    assert len(bcb_selic) == 1
+    assert bcb_selic[0]["price"] == 0.052531
 
     # Deliberately distinct from BCRP's own tipo_cambio_usd_pen (different
     # country/currency/source) — this query must not accidentally match it.
@@ -78,7 +84,7 @@ async def test_collect_gov_bcb_needs_no_api_key(index_env, monkeypatch):
     monkeypatch.delenv("BCB_API_KEY", raising=False)
 
     async def fake_fetch(self):
-        return {"fx": _FX_PAYLOAD, "ipca": _IPCA_PAYLOAD}
+        return {"fx": _FX_PAYLOAD, "ipca": _IPCA_PAYLOAD, "selic": _SELIC_PAYLOAD}
 
     monkeypatch.setattr(bcb_module.BCBConnector, "fetch", fake_fetch)
 
