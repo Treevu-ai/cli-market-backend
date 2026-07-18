@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 import routers.intel as intel_module
 
 
@@ -77,7 +79,7 @@ def test_retailer_scorecard_route_maps_value_error_to_422(monkeypatch):
             intel_module.intel_retailer_scorecard(
                 store="nope", days=30, authorization="Bearer x", db="fake-db"
             )
-            assert False, "expected HTTPException"
+            pytest.fail("expected HTTPException")
         except HTTPException as exc:
             assert exc.status_code == 422
             assert "nope" in exc.detail
