@@ -155,6 +155,16 @@ async def collect_gov_wto() -> Dict[str, Any]:
     return await _collect_gov_source("wto_pe", WTOConnector())
 
 
+async def collect_gov_comtrade() -> Dict[str, Any]:
+    """Fetch UN Comtrade (Peru total merchandise exports/imports, annual)
+    into the semantic index. Requires COMTRADE_API_SUBSCRIPTION_KEY."""
+    if not _INDEX_AVAILABLE:
+        return {"ok": False, "error": "cli-market-index not installed", "resolved": 0}
+    from connectors.gov.adapters.comtrade import UNComtradeConnector
+
+    return await _collect_gov_source("comtrade_pe", UNComtradeConnector())
+
+
 def _brand_slug(product: Any) -> str:
     brand = product.brand
     if isinstance(brand, str):

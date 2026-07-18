@@ -14,6 +14,7 @@ Endpoints:
   POST /admin/cron/gov-bcrp    Refresh BCRP official exchange rate + IPC (daily cron)
   POST /admin/cron/gov-sisap   Refresh SISAP canasta básica retail prices (daily cron)
   POST /admin/cron/gov-wto     Refresh WTO Peru merchandise exports/imports (daily cron)
+  POST /admin/cron/gov-comtrade Refresh UN Comtrade Peru merchandise exports/imports (daily cron)
 
 Protected with MARKET_API_TOKEN (Bearer). Set on Fly.io before exposing publicly.
 """
@@ -456,4 +457,21 @@ async def admin_cron_gov_wto(authorization: str | None = Header(None)):
     from index_gate import collect_gov_wto
 
     return await collect_gov_wto()
+
+
+@router.post("/admin/cron/gov-comtrade")
+async def admin_cron_gov_comtrade(authorization: str | None = Header(None)):
+    """Refresh UN Comtrade Peru total merchandise exports/imports, annual (daily cron).
+
+    Third independent trade-data source alongside BCRP (exportaciones_fob_pe/
+    importaciones_fob_pe) and WTO (*_wto_pe) — namespaced *_comtrade_pe so all
+    three stay distinguishable. Peru reports to UN Comtrade annually only, so
+    this resolves to the same year's snapshot until UN Comtrade publishes the
+    next year's data. Requires COMTRADE_API_SUBSCRIPTION_KEY (free UN Comtrade
+    API Portal key).
+    """
+    require_admin(authorization)
+    from index_gate import collect_gov_comtrade
+
+    return await collect_gov_comtrade()
 
