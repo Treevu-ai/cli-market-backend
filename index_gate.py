@@ -145,6 +145,16 @@ async def collect_gov_sisap() -> Dict[str, Any]:
     return await _collect_gov_source("sisap_pe", SISAPConnector())
 
 
+async def collect_gov_wto() -> Dict[str, Any]:
+    """Fetch WTO Timeseries (Peru total merchandise exports/imports, monthly)
+    into the semantic index. Requires WTO_API_SUBSCRIPTION_KEY."""
+    if not _INDEX_AVAILABLE:
+        return {"ok": False, "error": "cli-market-index not installed", "resolved": 0}
+    from connectors.gov.adapters.wto import WTOConnector
+
+    return await _collect_gov_source("wto_pe", WTOConnector())
+
+
 def _brand_slug(product: Any) -> str:
     brand = product.brand
     if isinstance(brand, str):

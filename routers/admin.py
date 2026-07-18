@@ -13,6 +13,7 @@ Endpoints:
   POST /admin/cron/commerce-pulse  Generate Agentic Commerce Pulse reports (weekly)
   POST /admin/cron/gov-bcrp    Refresh BCRP official exchange rate + IPC (daily cron)
   POST /admin/cron/gov-sisap   Refresh SISAP canasta básica retail prices (daily cron)
+  POST /admin/cron/gov-wto     Refresh WTO Peru merchandise exports/imports (daily cron)
 
 Protected with MARKET_API_TOKEN (Bearer). Set on Fly.io before exposing publicly.
 """
@@ -441,4 +442,18 @@ async def admin_cron_gov_sisap(authorization: str | None = Header(None)):
     from index_gate import collect_gov_sisap
 
     return await collect_gov_sisap()
+
+
+@router.post("/admin/cron/gov-wto")
+async def admin_cron_gov_wto(authorization: str | None = Header(None)):
+    """Refresh WTO Peru total merchandise exports/imports, monthly (daily cron).
+
+    Complements BCRP's own exportaciones_fob_pe/importaciones_fob_pe (namespaced
+    *_wto_pe so the two independent-methodology sources are never conflated).
+    Requires WTO_API_SUBSCRIPTION_KEY (free WTO API Developer Portal key).
+    """
+    require_admin(authorization)
+    from index_gate import collect_gov_wto
+
+    return await collect_gov_wto()
 
