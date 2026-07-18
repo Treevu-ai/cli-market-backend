@@ -17,7 +17,7 @@
 
 > **Private repo** · Treevu-ai org — request access from maintainer.
 
-FastAPI backend powering the [CLI Market](https://cli-market.dev) production API — 81 retailers (41 verified active) across VTEX · Shopify · Magento · WooCommerce, 61,000+ shelf prices, Mercado Pago + PayPal checkout.
+FastAPI backend powering the [CLI Market](https://cli-market.dev) production API — 82 retailers (37 verified active) across 9 countries and VTEX · Shopify · Magento · WooCommerce, Mercado Pago + PayPal checkout. Live coverage/shelf-price counts: `GET /analytics/stats` (retailer/country counts also derive from the same `STORES` config as `market_stats.RETAILERS_VERIFIED`/`COUNTRIES` — update here only if that config's shape changes, not on every store added).
 
 ![Python 3.11](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-latest-green) ![Fly.io](https://img.shields.io/badge/Deploy-Fly.io-8b5cf6) ![MIT](https://img.shields.io/badge/License-MIT-lightgrey)
 
@@ -51,7 +51,7 @@ Interactive docs: <https://cli-market-api.fly.dev/docs>
 |---|---|---|
 | `auth` | `/auth` | Registration, login, API key issuance, plan gating |
 | `search` | `/search` | Product search and cross-retailer price comparison |
-| `retailers` | `/retailers` | Store catalog — 81 retailers (41 verified active), 8 countries, 4 platforms |
+| `retailers` | `/retailers` | Store catalog — 82 retailers (37 verified active), 9 countries, 4 platforms |
 | `cart` | `/cart` | Cart CRUD, basket comparison across retailers |
 | `orders` | `/orders` | Order history, reorder, status tracking |
 | `payments` | `/payments` | PayPal · Mercado Pago · QR Yape/Plin checkout |

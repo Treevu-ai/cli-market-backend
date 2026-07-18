@@ -758,15 +758,20 @@ async def billing_paypal(
     promo_code = (body.get("promo_code") or "").strip()
     body_email = (body.get("email") or "").strip().lower()
     try:
-        from market_core import db_get_user_email, db_save_user, db_get_users
+        from market_core import db_save_user, db_get_users
 
-        db_email = db_get_user_email(username) or ""
-        if body_email and not db_email:
-            users = db_get_users()
-            user = users.get(username) or {}
+        # Only backfill app_users.email when the account genuinely has none
+        # on file (legacy/admin-created accounts) — never let a client-
+        # supplied email overwrite the OTP-verified address set at
+        # registration (auth.py verify_email), since that value is also the
+        # trust anchor for notify_email checks on price alerts.
+        users = db_get_users()
+        user = users.get(username) or {}
+        account_email = (user.get("email") or "").strip().lower()
+        if body_email and not account_email:
             db_save_user(username, user.get("password", ""), user.get("token"), body_email)
-            db_email = body_email
-        email = db_email or body_email or f"{username}@cli-market.dev"
+            account_email = body_email
+        email = account_email or body_email or f"{username}@cli-market.dev"
         out = await _start_paypal_subscription(username, email, plan=plan, promo_code=promo_code)
         if out.get("ok"):
             out["message"] = (

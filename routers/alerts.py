@@ -26,7 +26,8 @@ from market_alerts import (
     db_toggle_alert,
     evaluate_alerts,
 )
-from market_core import db_get_subscription
+from market_core import db_get_subscription, db_get_users
+from market_security import validate_public_http_url
 from server_deps import get_db_dep, require_api_key
 
 router = APIRouter(tags=["alerts"])
@@ -97,12 +98,64 @@ class AlertCreateRequest(BaseModel):
         return v
 
 
+def _verified_notify_email(username: str, requested: str) -> str:
+    """Restrict notify_email to the caller's own verified account email.
+
+    A client-supplied notify_email would otherwise let any Pro+ user turn
+    price alerts into an SMTP relay against arbitrary third-party inboxes
+    (harassment/phishing risk, reputational damage to CLI Market's sender).
+
+    Deliberately reads app_users.email (set once, OTP-verified, at
+    registration in auth.py verify_email) rather than
+    db_get_user_email/subscription_requests — the latter is writable by the
+    caller's own unauthenticated-adjacent billing-intent calls (e.g.
+    POST /billing/request-pro accepts an arbitrary email in the body), which
+    would let an attacker "verify" any third-party address against
+    themselves and defeat this check entirely.
+    """
+    if not requested:
+        return ""
+    user = db_get_users().get(username) or {}
+    account_email = (user.get("email") or "").strip().lower()
+    if not account_email or requested.strip().lower() != account_email:
+        raise HTTPException(
+            status_code=403,
+            detail="notify_email must match your account's verified email",
+        )
+    return account_email
+
+
+def _verified_notify_webhook(username: str, requested: str) -> str:
+    """Restrict notify_webhook to Enterprise (as documented) and validate the URL.
+
+    Without the tier gate, any Pro caller gets an Enterprise-only feature for
+    free. Without URL validation, market_alerts._send_webhook does an
+    unrestricted httpx.post(url, ...) on alert firing — an SSRF vector
+    (e.g. targeting cloud metadata endpoints or internal services) with no
+    scheme/private-IP checks. Mirrors cli-market-world's routers/alerts.py.
+    """
+    if not requested:
+        return ""
+    sub = db_get_subscription(username)
+    if (sub.get("tier") or "free").lower() != "enterprise":
+        raise HTTPException(
+            status_code=403,
+            detail="notify_webhook requires CLI Market Enterprise plan.",
+        )
+    try:
+        return validate_public_http_url(requested)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/v1/alerts")
 def create_alert(body: AlertCreateRequest, authorization: str | None = Header(None)):
     """Create a price alert. Requires Pro tier."""
     username = require_api_key(authorization)
     _require_alerts_tier(username)
     _check_alert_limit(username)
+    notify_email = _verified_notify_email(username, body.notify_email)
+    notify_webhook = _verified_notify_webhook(username, body.notify_webhook)
     alert = db_create_alert(
         username=username,
         name=body.name or f"{body.condition} · {body.product_query[:30]}",
@@ -110,8 +163,8 @@ def create_alert(body: AlertCreateRequest, authorization: str | None = Header(No
         product_query=body.product_query,
         store=body.store,
         threshold_pct=body.threshold_pct,
-        notify_email=body.notify_email,
-        notify_webhook=body.notify_webhook,
+        notify_email=notify_email,
+        notify_webhook=notify_webhook,
         cooldown_hours=body.cooldown_hours,
     )
     return {"ok": True, "alert": alert}

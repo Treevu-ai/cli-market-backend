@@ -194,9 +194,22 @@ def enrich_product(item: Dict[str, Any], store_key: str = "") -> Dict[str, Any]:
 
 
 def enrich_list(items: List[Dict[str, Any]], store_key: str = "") -> List[Dict[str, Any]]:
-    """Enrich a list of product dicts in-place."""
-    for item in items:
-        if isinstance(item, dict):
+    """Enrich a list of product dicts in-place.
+
+    Uses IndexService.enrich_batch() (one DB round trip for the whole list
+    instead of 2 per item — see 2026-07-13 perf incident: this was the
+    remaining cause of /products/search taking ~40s for a 20-50 item
+    result after the registry-scan fix). Falls back to the old per-item
+    loop if the batch call itself errors, so a bug in the new path
+    degrades to "slow" rather than breaking search outright."""
+    dict_items = [item for item in items if isinstance(item, dict)]
+    if not dict_items:
+        return items
+    try:
+        _get_service().enrich_batch(dict_items, store_key=store_key)
+    except Exception as exc:
+        logger.warning("enrich_batch failed, falling back to per-item enrich: %s", exc)
+        for item in dict_items:
             enrich_product(item, store_key=store_key or item.get("store", ""))
     return items
 

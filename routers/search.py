@@ -43,6 +43,7 @@ from market_core.market_action_links import retailer_deeplink
 from market_core.market_basket import build_basket_compare
 from market_core.market_food_match import infer_staple_from_query, matches_food_basket_query
 from market_core.market_units import price_per_base_unit
+from market_core.price_confidence import compute_snapshot_confidence
 from http_retry import request_with_retry
 
 logger = logging.getLogger("market.server").getChild("search")
@@ -331,6 +332,13 @@ async def _search_products(body: SearchRequest):
                 prod["line"] = STORES[store]["line"]
                 _line = STORES[store]["line"]
                 prod["line_name"] = LINES.get(_line, {}).get("name", _line)
+                # Same check save_price_snapshot runs at write time (discount
+                # scrape-error detection) — surfaced here too so a shopper
+                # comparing prices across stores can see which ones are
+                # trustworthy instead of only ops seeing it in the dashboard.
+                prod["confidence"] = compute_snapshot_confidence(
+                    prod.get("price", 0) or 0, prod.get("list_price")
+                )
                 results.append(prod)
             except Exception as pe:
                 errors.append({"store": store, "product_id": str(p)[:80], "error": str(pe)})

@@ -11,6 +11,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import os
 import statistics
 from datetime import datetime, timedelta, timezone
 
@@ -22,6 +23,11 @@ from server_deps import get_db_dep, require_api_key
 from index_gate import enrich_list
 
 router = APIRouter(tags=["analytics"])
+
+# A brand counts as "on shelf" (unique_brands_on_shelf) if it has a priced
+# snapshot within this window — long enough to tolerate stores that aren't
+# recrawled daily, short enough to exclude brands that vanished months ago.
+STATS_BRAND_FRESHNESS_DAYS = int(os.getenv("STATS_BRAND_FRESHNESS_DAYS", "30"))
 
 
 def _country_stores(country: str | None) -> list[str] | None:
@@ -78,11 +84,19 @@ def analytics_stats(authorization: str | None = Header(None), db = Depends(get_d
            FROM price_snapshots"""
     ).fetchone()
     total_queries = db.execute("SELECT COUNT(*) as n FROM search_queries").fetchone()["n"]
+    brands_on_shelf = db.execute(
+        """SELECT COUNT(DISTINCT brand) AS n
+           FROM price_snapshots
+           WHERE brand != '' AND price > 0 AND queried_at >= ?""",
+        (_since_iso(STATS_BRAND_FRESHNESS_DAYS),),
+    ).fetchone()["n"]
     return {
         "total_price_snapshots": snap["total_snapshots"],
         "total_search_queries": total_queries,
         "unique_stores_tracked": snap["stores_tracked"],
         "unique_products_tracked": snap["products_tracked"],
+        "unique_brands_on_shelf": brands_on_shelf,
+        "brands_on_shelf_window_days": STATS_BRAND_FRESHNESS_DAYS,
         "latest_snapshot_at": snap["latest"],
     }
 
