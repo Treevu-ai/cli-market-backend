@@ -11,6 +11,7 @@ Endpoints:
   POST /admin/cron/adoption-index  Persist Adoption Index snapshot (nightly cron)
   POST /admin/cron/indicators-refresh  Refresh moat indicators (internal + macro + Phase 2)
   POST /admin/cron/commerce-pulse  Generate Agentic Commerce Pulse reports (weekly)
+  POST /admin/cron/gov-bcrp    Refresh BCRP official exchange rate + IPC (daily cron)
 
 Protected with MARKET_API_TOKEN (Bearer). Set on Fly.io before exposing publicly.
 """
@@ -408,4 +409,19 @@ def admin_cron_commerce_pulse(
         "written": written,
         "llm": llm,
     }
+
+
+@router.post("/admin/cron/gov-bcrp")
+async def admin_cron_gov_bcrp(authorization: str | None = Header(None)):
+    """Refresh BCRP official USD/PEN exchange rate + Lima IPC (daily cron).
+
+    Feeds the semantic index's gov_price_observations table — an official
+    macro data point independent of CLI Market's own shelf-price signal,
+    meant to validate/enrich the Macro Gap (Shelf vs CPI) indicator instead
+    of that indicator relying only on shelf-price proxies.
+    """
+    require_admin(authorization)
+    from index_gate import collect_gov_bcrp
+
+    return await collect_gov_bcrp()
 

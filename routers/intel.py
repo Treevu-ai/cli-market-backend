@@ -15,6 +15,7 @@ Endpoints:
   GET  /v1/intel/enrichment           Latest enrichment indicators
   GET  /v1/intel/enrichment/subcategories  Per-staple enrichment (leche, arroz, …)
   POST /v1/intel/enrichment/refresh   Refresh enrichment indicators only
+  GET  /v1/intel/gov-observations     Official gov price observations (BCRP, ...)
 """
 
 from __future__ import annotations
@@ -610,3 +611,20 @@ def intel_retailer_scorecard(
         return compute_retailer_scorecard(db, store=store, days=days)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/v1/intel/gov-observations")
+def intel_gov_observations(
+    commodity_slug: str = "",
+    region: str = "",
+    limit: int = 30,
+    authorization: str | None = Header(None),
+):
+    """Official government price observations (BCRP, and future sources:
+    SISAP, Osinergmin) — independent of CLI Market's own shelf-price
+    signal. Read-only counterpart to POST /admin/cron/gov-bcrp's writes."""
+    require_api_key(authorization)
+    from index_gate import gov_observations
+
+    limit = max(1, min(limit, 200))
+    return {"observations": gov_observations(commodity_slug=commodity_slug, region=region, limit=limit)}

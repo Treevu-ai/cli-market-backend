@@ -74,6 +74,57 @@ def registry_size() -> int:
         return 0
 
 
+def gov_observations(
+    commodity_slug: str = "", region: str = "", limit: int = 30
+) -> List[Dict[str, Any]]:
+    """Recent gov-source price observations (BCRP, SISAP, Osinergmin) —
+    read-only wrapper over IndexService.list_gov_observations(), the
+    sanctioned way for this repo to read data the gov connectors wrote."""
+    try:
+        return _get_service().list_gov_observations(
+            commodity_slug=commodity_slug, region=region, limit=limit
+        )
+    except Exception as exc:
+        logger.warning("gov_observations failed: %s", exc)
+        return []
+
+
+async def collect_gov_bcrp() -> Dict[str, Any]:
+    """Fetch BCRP (USD/PEN exchange rate + Lima IPC), resolve each
+    observation into the semantic index, same shape as certify_round() for
+    retail snapshots. Called by POST /admin/cron/gov-bcrp (external cron —
+    see cli-market-world's morning-ops-chain.yml — this repo has no
+    in-process scheduler, matching every other admin/cron/* endpoint)."""
+    if not _INDEX_AVAILABLE:
+        return {"ok": False, "error": "cli-market-index not installed", "resolved": 0}
+    try:
+        from connectors.gov.adapters.bcrp import BCRPConnector
+
+        connector = BCRPConnector()
+        observations = await connector.collect()
+        svc = _get_service()
+        resolved = 0
+        errors = 0
+        for obs in observations:
+            try:
+                result = svc.resolve_snapshot(obs.to_index_snapshot())
+                if result.product:
+                    resolved += 1
+            except Exception as exc:
+                errors += 1
+                logger.warning("collect_gov_bcrp: failed to resolve %s: %s", obs.commodity_slug, exc)
+        return {
+            "ok": True,
+            "source": "bcrp_pe",
+            "fetched": len(observations),
+            "resolved": resolved,
+            "errors": errors,
+        }
+    except Exception as exc:
+        logger.warning("collect_gov_bcrp failed: %s", exc)
+        return {"ok": False, "error": str(exc), "resolved": 0}
+
+
 def _brand_slug(product: Any) -> str:
     brand = product.brand
     if isinstance(brand, str):
