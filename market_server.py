@@ -239,7 +239,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv(
         "CORS_ORIGINS",
-        "https://cli-market.dev,http://localhost:3000,https://claude.ai,https://api.anthropic.com,https://smithery.ai,https://mcp.smithery.run,https://chat.smithery.ai",
+        "https://cli-market.dev,https://academy.cli-market.dev,http://localhost:3000,https://claude.ai,https://api.anthropic.com,https://smithery.ai,https://mcp.smithery.run,https://chat.smithery.ai",
     ).split(","),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
@@ -249,6 +249,7 @@ app.add_middleware(
 
 # ── Routers ──────────────────────────────────────────────────────────────────
 
+from routers.academy import router as academy_router
 from routers.admin import router as admin_router
 from routers.agent import router as agent_router
 from routers.alerts import router as alerts_router
@@ -280,6 +281,7 @@ from routers.taller import router as taller_router
 # Order doesn't matter functionally — each router declares its own paths.
 # Listed alphabetically by router file for easy navigation.
 for r in (
+    academy_router,
     admin_router,
     agent_router,
     alerts_router,
