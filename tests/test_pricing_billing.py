@@ -26,13 +26,13 @@ def test_tier_for_billing_plan():
 
 def test_price_labels():
     assert price_label_for_plan("starter") == "$9/mo"
-    assert price_label_for_plan("pro") == "$49/mo"
+    assert price_label_for_plan("pro") == "$39/mo"
     assert price_label_for_plan("pro_founding") == "$29/mo"
-    assert price_label_for_plan("pro_annual") == "$490/yr"
+    assert price_label_for_plan("pro_annual") == "$390/yr"
 
 
 def test_checkout_upgrade_detail_uses_pro_price():
-    assert "$49/mo" in checkout_upgrade_detail()
+    assert "$39/mo" in checkout_upgrade_detail()
 
 
 def test_founding_validation_wrong_code(isolated_db):

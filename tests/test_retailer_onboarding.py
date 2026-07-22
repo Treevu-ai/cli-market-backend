@@ -100,7 +100,10 @@ def test_approve_moves_token_to_store_credentials(onboarding_db):
 def test_guess_store_id_from_website(onboarding_db):
     from retailer_onboarding import guess_store_id
 
-    assert guess_store_id("https://www.falabella.com.pe/tienda", "magento", "PE") == "falabella_pe"
+    # falabella_pe is now platform=falabella_web (active, no credentials needed) —
+    # efe_pe is still a disabled Magento store gated on a real token, same shape
+    # this test needs (see market_core.STORES).
+    assert guess_store_id("https://www.efe.com.pe/tienda", "magento", "PE") == "efe_pe"
     assert guess_store_id("https://www.wong.pe", "vtex", "PE") == "wong"
 
 

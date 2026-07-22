@@ -28,13 +28,16 @@ def clean_credentials(monkeypatch):
 def test_env_parses_magento_token(monkeypatch):
     import store_credentials
 
-    monkeypatch.setenv("STORE_FALABELLA_PE_MAGENTO_TOKEN", "test-magento-token")
+    # falabella_pe is now platform=falabella_web (active, no credentials needed) —
+    # efe_pe is still a disabled Magento store gated on a real token, same shape
+    # this test needs (see market_core.STORES).
+    monkeypatch.setenv("STORE_EFE_PE_MAGENTO_TOKEN", "test-magento-token")
     store_credentials.reload_credentials()
 
-    assert store_credentials.has_store_credentials("falabella_pe")
-    cfg = store_credentials.resolve_store_config("falabella_pe")
+    assert store_credentials.has_store_credentials("efe_pe")
+    cfg = store_credentials.resolve_store_config("efe_pe")
     assert cfg["magento_token"] == "test-magento-token"
-    assert "falabella_pe" in store_credentials.compute_default_stores()
+    assert "efe_pe" in store_credentials.compute_default_stores()
 
 
 def test_vtex_requires_key_and_token_pair(monkeypatch):
@@ -67,7 +70,9 @@ def test_shopify_storefront_token_enables_store(monkeypatch):
 def test_disabled_store_without_credentials_not_in_default():
     import store_credentials
 
-    assert "falabella_pe" not in store_credentials.compute_default_stores()
+    # falabella_pe is now platform=falabella_web (active by default) — efe_pe is
+    # still a disabled Magento store gated on a real token (see market_core.STORES).
+    assert "efe_pe" not in store_credentials.compute_default_stores()
 
 
 def test_magento_connector_sends_bearer():
