@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import time
 from typing import Any
 
@@ -17,8 +18,10 @@ def _rate_count(db, key: str, window_start: float) -> int:
 
 
 def _daily_window_start() -> float:
-    now = time.time()
-    return time.mktime(time.strptime(time.strftime("%Y-%m-%d", time.gmtime(now)), "%Y-%m-%d"))
+    # UTC midnight — mktime() interprets its input as local time, which
+    # silently returned local midnight on any non-UTC host.
+    utc_now = time.gmtime()
+    return calendar.timegm((utc_now.tm_year, utc_now.tm_mon, utc_now.tm_mday, 0, 0, 0, 0, 0, 0))
 
 
 def upgrade_next_step(tier: str, *, lang: str = "es") -> dict[str, Any]:

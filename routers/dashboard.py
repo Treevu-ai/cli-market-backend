@@ -993,10 +993,12 @@ def dashboard_usage(authorization: str | None = Header(None), db = Depends(get_d
     sub = db_get_subscription(username)
     tier = sub.get("tier", "free")
     limits = TIERS.get(tier, TIERS["free"])
+    import calendar
     import time as _time
-    today_start = _time.mktime(_time.strptime(
-        _time.strftime("%Y-%m-%d", _time.gmtime()), "%Y-%m-%d"
-    ))
+    # UTC midnight — mktime() interprets its input as local time, which
+    # silently returned local midnight on any non-UTC host.
+    utc_now = _time.gmtime()
+    today_start = calendar.timegm((utc_now.tm_year, utc_now.tm_mon, utc_now.tm_mday, 0, 0, 0, 0, 0, 0))
     today_reqs = (
         db.execute(
             "SELECT SUM(counter) as n FROM rate_limits "
