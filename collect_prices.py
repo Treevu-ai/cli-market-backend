@@ -1105,9 +1105,13 @@ def _run_index_cycle(prices_collected: int) -> None:
     if not INDEX_COLLECT_ENABLED or prices_collected <= 0:
         return
     try:
-        from index_gate import certify_round
+        from index_gate import certify_round, backfill_canonical_product_ids
 
-        stats = certify_round(prices_collected)
+        # Default since_minutes=15 misses snapshots collected earlier in a run that
+        # takes longer than 15min against ~100+ retailers — widen to the full
+        # daemon interval (plus a buffer) so a slow cycle doesn't leave a gap.
+        since_minutes = DAEMON_INTERVAL * 60 + 30
+        stats = certify_round(prices_collected, since_minutes=since_minutes)
         resolved = stats.get("resolved", 0)
         registry = stats.get("registry_size", 0)
         linked = stats.get("linked", 0)
@@ -1119,6 +1123,14 @@ def _run_index_cycle(prices_collected: int) -> None:
             )
         else:
             logger.info("Index cycle: 0 snapshots resolved (registry=%d)", registry)
+
+        # Safety-net sweep: catch anything still unresolved from prior cycles
+        # (resolver errors, missed windows) instead of relying on someone
+        # remembering to run ops/backfill_index.py by hand.
+        backfill_stats = backfill_canonical_product_ids(limit=2000)
+        swept = backfill_stats.get("resolved", 0)
+        if swept:
+            print(f"  🧹 Backfill sweep: {swept} previously-unlinked snapshots resolved")
     except Exception as exc:
         print(f"  ⚠ Index cycle skipped: {exc}")
         logger.warning("Index cycle failed: %s", exc)
