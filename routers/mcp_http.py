@@ -33,6 +33,7 @@ from fastapi.responses import JSONResponse
 
 from market_core import get_db
 from market_core.market_mcp_registry import list_tools as _registry_list_tools
+from market_core.market_mcp_registry import resolve_tool_name
 from market_funnel import record_funnel_event
 from market_stats import (
     COUNTRIES,
@@ -166,6 +167,15 @@ async def _fetch_moat_cached(client: httpx.AsyncClient, headers: dict) -> dict:
 async def _call_tool(name: str, args: dict, token: str) -> dict:
     import asyncio
 
+    # Resolve legacy aliases (market_alerts -> market_price_alerts, etc.) to
+    # their canonical handler name before dispatch. Without this, calling any
+    # alias that doesn't happen to have its own elif branch below (9 of the
+    # 11 registered aliases didn't) fell straight through to "Unknown tool" —
+    # the registry already tracks the redirect (resolve_tool_name), this
+    # dispatcher just never consulted it. Falls back to the original name so
+    # a genuinely unknown tool still reports as unknown, not silently no-ops.
+    name = resolve_tool_name(name) or name
+
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=20.0) as client:
         # ── Free tools ────────────────────────────────────────────────────────
@@ -205,9 +215,13 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
             r = await client.get(f"{_API_BASE}/v1/intel/scores", params={"country": args.get("country")}, headers=headers)
         elif name == "market_intel_brief":
             r = await client.get(f"{_API_BASE}/v1/intel/brief", params={k: v for k, v in args.items() if v is not None}, headers=headers)
-        elif name == "market_intel_pulse":
+        elif name == "market_commerce_pulse":
+            # Renamed from market_intel_pulse in the registry; this branch
+            # still matched the old name, so every real call fell through
+            # to "Unknown tool" (found in the 2026-07-23 MCP tools audit).
             r = await client.get(f"{_API_BASE}/v1/intel/pulse", params={k: v for k, v in args.items() if v is not None}, headers=headers)
-        elif name == "market_forecast":
+        elif name == "market_price_forecast":
+            # Renamed from market_forecast — same class of bug as above.
             params = {k: v for k, v in args.items() if v is not None}
             r = await client.get(f"{_API_BASE}/v1/intel/forecast", params=params, headers=headers)
         elif name == "market_arbitrage":
@@ -307,6 +321,55 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
             params = {k: v for k, v in args.items() if v is not None}
             params.setdefault("limit", 50)
             r = await client.get(f"{_API_BASE}/analytics/price-history", params=params, headers=headers)
+        # ── Tools found registered but entirely undispatched in the 2026-07-23
+        # MCP tools audit — endpoint confirmed to already exist in routers/*.py
+        # before wiring (see that session's investigation for the 3 tools
+        # left out because no real backend route existed yet: market_moat_confidence,
+        # market_ecosystem_radar, market_procurement_bulk).
+        elif name == "market_basket_stress":
+            r = await client.get(f"{_API_BASE}/v1/intel/basket-stress", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_brands":
+            r = await client.get(f"{_API_BASE}/analytics/brands", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_categories":
+            r = await client.get(f"{_API_BASE}/categories/{args['store']}", headers=headers)
+        elif name == "market_delivery":
+            r = await client.get(
+                f"{_API_BASE}/products/delivery/{args['product_id']}",
+                params={"store": args["store"], "zipcode": args.get("zipcode", "")},
+                headers=headers,
+            )
+        elif name == "market_ecosystem_traction":
+            r = await client.get(f"{_API_BASE}/analytics/observatory", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_enrich":
+            r = await client.get(f"{_API_BASE}/products/enrich", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_enrichment_refresh":
+            r = await client.post(f"{_API_BASE}/v1/intel/enrichment/refresh", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_exchange":
+            r = await client.post(
+                f"{_API_BASE}/v1/utils/exchange",
+                json={"amount": args["amount"], "from": args["from_currency"], "to": args["to_currency"]},
+                headers=headers,
+            )
+        elif name == "market_gov_observations":
+            r = await client.get(f"{_API_BASE}/v1/intel/gov-observations", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_intel_refresh":
+            r = await client.post(f"{_API_BASE}/v1/intel/refresh", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_scan":
+            r = await client.post(f"{_API_BASE}/v1/admin/scan-stores", json={"line": args.get("line")}, headers=headers)
+        elif name == "market_stock":
+            r = await client.get(
+                f"{_API_BASE}/products/stock/{args['product_id']}",
+                params={"store": args["store"]},
+                headers=headers,
+            )
+        elif name == "market_voice":
+            r = await client.post(f"{_API_BASE}/v1/voice/transcribe-url", json={"url": args["url"]}, headers=headers)
+        elif name == "index_lookup":
+            r = await client.get(f"{_API_BASE}/index/lookup/{args['product_id']}", headers=headers)
+        elif name == "index_resolve":
+            r = await client.get(f"{_API_BASE}/resolve", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "index_stats":
+            r = await client.get(f"{_API_BASE}/index/stats", headers=headers)
         else:
             return {"error": f"Unknown tool: {name}"}
 
