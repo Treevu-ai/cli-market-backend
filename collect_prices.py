@@ -1235,6 +1235,7 @@ async def main():
                     f"responded {responded}/{attempted} | "
                     f"{time.monotonic()-t0:.1f}s | {r['errors']} errors"
                 )
+                _run_index_cycle(r.get("prices_collected", 0))
                 # Evaluate price alerts after every collection cycle
                 try:
                     from market_alerts import evaluate_alerts
@@ -1314,6 +1315,7 @@ async def main():
             f"  ✓ {r['prices_collected']:,} prices | yield {yielded}/{r['stores_attempted']} | "
             f"responded {responded}/{r['stores_attempted']} | {time.monotonic()-t0:.1f}s | {r['errors']} errors"
         )
+        _run_index_cycle(r.get("prices_collected", 0))
         do_status()
 
 if __name__ == "__main__":
