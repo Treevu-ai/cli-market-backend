@@ -43,7 +43,7 @@ from market_stats import (
     PRICES_VERIFIED_LABEL,
     RETAILERS_VERIFIED,
 )
-from server_deps import require_api_key
+from server_deps import auth_user, require_api_key
 
 
 def _live_store_count() -> int:
@@ -123,12 +123,57 @@ def _log_mcp_event(event: str, token: str | None, meta: dict) -> None:
         pass
 
 
-# ── Tool definitions (sourced from market_core registry, default profile) ─────
+# ── Tool definitions (sourced from market_core registry) ──────────────────────
 
 # list_tools() returns [{name, description, inputSchema}, ...] for the profile.
 # Using the registry as single source of truth avoids drift when new tools are
 # published to cli-market-core without a matching mcp_http update.
+# Default-profile tools (44), used as the fallback for unauthenticated/free/
+# pro/starter callers, the server card, and initialize's advertised count.
 _TOOLS: list[dict] = _registry_list_tools("default")
+
+# "full" profile (66) — every customer-facing tool, excluding the operator-only
+# admin tools (_ADMIN_NAMES, e.g. cron/scan-stores triggers) that "admin"
+# profile alone exposes. Precomputed once like _TOOLS above.
+_FULL_TOOLS: list[dict] = _registry_list_tools("full")
+
+# tools/list is called far more often than a user's subscription tier
+# changes, so cache the resolved profile per token briefly instead of
+# hitting the subscription DB on every MCP handshake.
+_PROFILE_CACHE: dict[str, tuple[str, float]] = {}
+_PROFILE_CACHE_TTL = 300.0  # seconds
+
+
+def _tools_for_token(raw_token: str | None) -> list[dict]:
+    """Enterprise subscribers (and the platform admin) see every customer-
+    facing tool by default instead of the 44-tool curated default profile —
+    requested explicitly (2026-07-23): "necesito que mi perfil enterprise
+    exponga todas las tools por defecto". Never raises — an invalid/missing
+    token just falls back to the default profile, same as before this
+    change, rather than breaking tools/list for unauthenticated probes."""
+    if not raw_token:
+        return _TOOLS
+
+    import time
+
+    now = time.time()
+    cached = _PROFILE_CACHE.get(raw_token)
+    if cached and now - cached[1] < _PROFILE_CACHE_TTL:
+        return _FULL_TOOLS if cached[0] == "full" else _TOOLS
+
+    profile = "default"
+    try:
+        from market_billing import db_get_subscription
+        from market_core.platform_admin import is_platform_admin
+
+        username = auth_user(raw_token)
+        if is_platform_admin(username) or db_get_subscription(username).get("tier") == "enterprise":
+            profile = "full"
+    except Exception:
+        pass
+
+    _PROFILE_CACHE[raw_token] = (profile, now)
+    return _FULL_TOOLS if profile == "full" else _TOOLS
 
 # ── Moat freshness cache — injected into search/basket responses ──────────────
 
@@ -526,7 +571,7 @@ async def mcp_http(
         return JSONResponse({})
 
     if method == "tools/list":
-        return JSONResponse(_rpc_ok({"tools": _TOOLS}, req_id))
+        return JSONResponse(_rpc_ok({"tools": _tools_for_token(raw_token)}, req_id))
 
     if method == "tools/call":
         tool_name = params.get("name", "")
