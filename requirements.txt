@@ -1,6 +1,6 @@
 # Public PyPI deps only — GitHub dependency graph / auto-submission read this file.
 # Private cli-market-index pin lives in requirements-private.txt (Docker + local dev).
-cli-market-core==1.11.59
+cli-market-core==1.11.60
 
 # Runtime / dev deps not pulled in transitively by cli-market-core.
 anthropic>=0.40.0
