@@ -29,7 +29,13 @@ RUN set -eux; \
     playwright install chromium; \
     rm -f /root/.gitconfig
 
-COPY collect_prices.py ./
+# index_gate.py + price_snapshots_schema.py (golden-record linking) and
+# commerce_pulse_cache.py (per-cycle pulse cache refresh) are backend-repo
+# local files, not part of the cli-market-core PyPI package — collect_prices.py
+# imports them at runtime inside _run_index_cycle()/the daemon loop, but they
+# were never copied into this image, so both calls silently failed with
+# "No module named ..." every cycle (caught by their own try/except).
+COPY collect_prices.py index_gate.py price_snapshots_schema.py commerce_pulse_cache.py ./
 
 ENV PYTHONUNBUFFERED=1
 CMD ["python", "collect_prices.py", "--daemon"]
