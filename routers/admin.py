@@ -11,6 +11,7 @@ Endpoints:
   POST /admin/cron/adoption-index  Persist Adoption Index snapshot (nightly cron)
   POST /admin/cron/indicators-refresh  Refresh moat indicators (internal + macro + Phase 2)
   POST /admin/cron/commerce-pulse  Generate Agentic Commerce Pulse reports (weekly)
+  POST /admin/cron/pulse-cache-refresh  Refresh shared commerce_pulse_cache table (per collector cycle)
   POST /admin/cron/gov-bcrp    Refresh BCRP official exchange rate + IPC (daily cron)
   POST /admin/cron/gov-sisap   Refresh SISAP canasta básica retail prices (daily cron)
   POST /admin/cron/gov-wto     Refresh WTO Peru merchandise exports/imports (daily cron)
@@ -413,6 +414,22 @@ def admin_cron_commerce_pulse(
         "written": written,
         "llm": llm,
     }
+
+
+@router.post("/admin/cron/pulse-cache-refresh")
+def admin_cron_pulse_cache_refresh(authorization: str | None = Header(None)):
+    """Refresh the shared commerce_pulse_cache table (called by the collector
+    daemon after each collection cycle, over HTTP rather than importing
+    commerce_pulse_cache/market_pulse/market_brief/routers.dashboard directly —
+    those are backend-repo files the minimal collector image doesn't carry,
+    and pulling in all of routers/ just for this would be the wrong fix.
+    See intelligence_web.py's _load_pulse() for the read side; this just
+    keeps that shared cache warm instead of relying only on its own
+    cold-start live-compute fallback."""
+    require_admin(authorization)
+    from commerce_pulse_cache import refresh_all
+
+    return refresh_all()
 
 
 @router.post("/admin/cron/gov-bcrp")

@@ -29,18 +29,21 @@ RUN set -eux; \
     playwright install chromium; \
     rm -f /root/.gitconfig
 
-# index_gate.py + price_snapshots_schema.py (golden-record linking) and
-# commerce_pulse_cache.py + its transitive deps market_pulse.py/market_brief.py
-# (per-cycle pulse cache refresh) are backend-repo local files, not part of the
-# cli-market-core PyPI package — collect_prices.py imports them at runtime
-# inside _run_index_cycle()/the daemon loop, but they were never copied into
-# this image, so both calls silently failed with "No module named ..." every
-# cycle (caught by their own try/except). Traced the full import chain via
-# grep before this edit: index_gate -> price_snapshots_schema;
-# commerce_pulse_cache -> market_pulse -> market_brief. Nothing else needed —
+# index_gate.py + price_snapshots_schema.py (golden-record linking) are
+# backend-repo local files, not part of the cli-market-core PyPI package —
+# collect_prices.py imports them at runtime inside _run_index_cycle(), but
+# they were never copied into this image, so it silently failed with
+# "No module named 'index_gate'" every cycle (caught by its own try/except).
 # market_alerts/market_indicators ship as flat top-level modules inside the
-# cli-market-core PyPI package itself.
-COPY collect_prices.py index_gate.py price_snapshots_schema.py commerce_pulse_cache.py market_pulse.py market_brief.py ./
+# cli-market-core PyPI package itself, so those need no extra COPY.
+#
+# Pulse-cache refresh does NOT get the same treatment: it needs
+# commerce_pulse_cache -> market_pulse -> market_brief AND routers.dashboard
+# (a whole package with its own deep dependency chain) — copying all of that
+# into this minimal image just to warm a cache would be the wrong fix.
+# collect_prices.py instead calls POST /admin/cron/pulse-cache-refresh on
+# cli-market-api over HTTP, where all of that already lives.
+COPY collect_prices.py index_gate.py price_snapshots_schema.py ./
 
 ENV PYTHONUNBUFFERED=1
 CMD ["python", "collect_prices.py", "--daemon"]

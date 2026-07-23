@@ -1247,10 +1247,21 @@ async def main():
                 # Refresh the shared /intelligence pulse cache every cycle so
                 # every Fly machine serves the same fresh-enough snapshot
                 # instantly instead of each machine computing it live on its
-                # own cold in-memory cache.
+                # own cold in-memory cache. Delegated over HTTP to cli-market-api
+                # (which already has commerce_pulse_cache/market_pulse/market_brief/
+                # routers.dashboard) rather than importing them here — this minimal
+                # collector image doesn't carry the API's routers/ package, and
+                # copying all of it just for this would be the wrong fix.
                 try:
-                    from commerce_pulse_cache import refresh_all
-                    pulse_result = refresh_all()
+                    api_base = os.getenv("MARKET_API_URL", "https://cli-market-api.fly.dev").rstrip("/")
+                    api_token = os.getenv("MARKET_API_TOKEN", "")
+                    resp = httpx.post(
+                        f"{api_base}/admin/cron/pulse-cache-refresh",
+                        headers={"Authorization": f"Bearer {api_token}"},
+                        timeout=60.0,
+                    )
+                    resp.raise_for_status()
+                    pulse_result = resp.json()
                     print(f"  📰 Pulse cache refreshed: {pulse_result['written']} written, {pulse_result['errors']} errors")
                 except Exception as _pe:
                     print(f"  ⚠ Pulse cache refresh skipped: {_pe}")
