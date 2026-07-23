@@ -16,6 +16,9 @@ Endpoints:
   GET  /v1/intel/enrichment/subcategories  Per-staple enrichment (leche, arroz, …)
   POST /v1/intel/enrichment/refresh   Refresh enrichment indicators only
   GET  /v1/intel/gov-observations     Official gov price observations (BCRP, ...)
+  GET  /v1/moat/confidence            Crowd-sourced moat confidence tier from receipts
+  GET  /v1/ecosystem/launches         Ecosystem launches radar (curated + Product Hunt)
+  POST /v1/intel/procurement-bulk     B2B bulk procurement signals for SKU lists
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, field_validator
 
@@ -628,3 +631,63 @@ def intel_gov_observations(
 
     limit = max(1, min(limit, 200))
     return {"observations": gov_observations(commodity_slug=commodity_slug, region=region, limit=limit)}
+
+
+@router.get("/v1/moat/confidence")
+def moat_confidence(
+    product_id: str | None = None,
+    store: str | None = None,
+    name: str | None = None,
+    authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
+):
+    """Crowd-sourced moat confidence tier (verified/observed/unverified) from
+    receipt confirmations over a 7-day window. Registered as market_moat_confidence
+    in the MCP tool registry since before 2026-07-23, but never had a route —
+    found via that session's full MCP tools audit."""
+    require_api_key(authorization)
+    from market_core.market_receipts import compute_moat_confidence
+
+    return compute_moat_confidence(db, product_id=product_id, store=store, name=name)
+
+
+@router.get("/v1/ecosystem/launches")
+def ecosystem_launches(
+    topic: str = "food",
+    days: int = 7,
+    limit: int = 20,
+    authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
+):
+    """Ecosystem launches radar — curated + Product Hunt cache, signal only
+    (not price data). Registered as market_ecosystem_radar in the MCP tool
+    registry, never had a route — found via the 2026-07-23 MCP tools audit."""
+    require_api_key(authorization)
+    from market_core.market_ecosystem import list_ecosystem_launches
+
+    return list_ecosystem_launches(db, topic=topic, days=days, limit=limit)
+
+
+@router.post("/v1/intel/procurement-bulk")
+def intel_procurement_bulk(
+    body: dict = Body(...),
+    authorization: str | None = Header(None),
+    db = Depends(get_db_dep),
+):
+    """B2B bulk procurement signals for a list of SKU queries — enterprise
+    procurement plane. Registered as market_procurement_bulk in the MCP tool
+    registry, never had a route — found via the 2026-07-23 MCP tools audit."""
+    require_api_key(authorization)
+    from market_core.market_procurement_bulk import run_procurement_bulk
+
+    lines = body.get("lines")
+    if not lines:
+        raise HTTPException(status_code=422, detail="lines is required (non-empty array)")
+    return run_procurement_bulk(
+        db,
+        country=body.get("country", "PE"),
+        lines=lines,
+        organization_id=body.get("organization_id"),
+        include_substitutes=body.get("include_substitutes", True),
+        output=body.get("output", "json"),
+    )

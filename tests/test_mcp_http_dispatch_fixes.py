@@ -549,3 +549,63 @@ def test_market_scan_no_longer_unknown_tool():
 
     assert result != {"error": "Unknown tool: market_scan"}
     assert result == {"scanned": 5}
+
+
+# ── 2026-07-23 audit follow-up: routes built for the 3 tools with no ────────
+# endpoint at all (not just a missing dispatch entry) ────────────────────────
+
+
+def test_market_moat_confidence_no_longer_unknown_tool():
+    from routers.mcp_http import _call_tool
+
+    url = _api_url("/v1/moat/confidence")
+    responses = {url: _mock_response(200, {"confidence_tier": "verified"})}
+
+    with patch("routers.mcp_http.httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=_mock_client(responses))
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = asyncio.run(
+            _call_tool("market_moat_confidence", {"product_id": "p1", "store": "wong_pe"}, "sk-test")
+        )
+
+    assert result != {"error": "Unknown tool: market_moat_confidence"}
+    assert result == {"confidence_tier": "verified"}
+
+
+def test_market_ecosystem_radar_no_longer_unknown_tool():
+    from routers.mcp_http import _call_tool
+
+    url = _api_url("/v1/ecosystem/launches")
+    responses = {url: _mock_response(200, {"launches": []})}
+
+    with patch("routers.mcp_http.httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=_mock_client(responses))
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = asyncio.run(_call_tool("market_ecosystem_radar", {"topic": "food"}, "sk-test"))
+
+    assert result != {"error": "Unknown tool: market_ecosystem_radar"}
+    assert result == {"launches": []}
+
+
+def test_market_procurement_bulk_no_longer_unknown_tool():
+    from routers.mcp_http import _call_tool
+
+    url = _api_url("/v1/intel/procurement-bulk")
+    responses = {url: _mock_response(200, {"status": "ok"})}
+
+    with patch("routers.mcp_http.httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=_mock_client(responses))
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = asyncio.run(
+            _call_tool(
+                "market_procurement_bulk",
+                {"lines": [{"sku_query": "arroz 50kg", "qty": 10, "unit": "kg"}]},
+                "sk-test",
+            )
+        )
+
+    assert result != {"error": "Unknown tool: market_procurement_bulk"}
+    assert result == {"status": "ok"}

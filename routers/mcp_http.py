@@ -370,6 +370,14 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
             r = await client.get(f"{_API_BASE}/resolve", params={k: v for k, v in args.items() if v is not None}, headers=headers)
         elif name == "index_stats":
             r = await client.get(f"{_API_BASE}/index/stats", headers=headers)
+        # ── Tools whose registered endpoint didn't exist yet — added along
+        # with the routes themselves (2026-07-23 MCP tools audit follow-up).
+        elif name == "market_moat_confidence":
+            r = await client.get(f"{_API_BASE}/v1/moat/confidence", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_ecosystem_radar":
+            r = await client.get(f"{_API_BASE}/v1/ecosystem/launches", params={k: v for k, v in args.items() if v is not None}, headers=headers)
+        elif name == "market_procurement_bulk":
+            r = await client.post(f"{_API_BASE}/v1/intel/procurement-bulk", json=args, headers=headers)
         else:
             return {"error": f"Unknown tool: {name}"}
 
