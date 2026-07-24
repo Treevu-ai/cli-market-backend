@@ -18,7 +18,7 @@ from datetime import datetime, timezone, timedelta
 import httpx
 
 from market_core import (
-    STORES, LINES, logger as log,
+    LINES, logger as log,
     product_from_json as _pfj, fetch_store as _fetch_store,
     ensure_db_initialized,
 )
@@ -30,7 +30,9 @@ def _store_line(store: str) -> str:
     try:
         return resolve_store_config(store).get("line", "")
     except KeyError:
-        return STORES.get(store, {}).get("line", "")
+        from store_credentials import get_all_stores
+
+        return get_all_stores().get(store, {}).get("line", "")
 
 logger = log.getChild("collector")
 
@@ -178,7 +180,9 @@ def queries_for_store(store: str, global_queries: list[tuple[str, str]]) -> list
 
 
 def max_allowed_price(store: str, line: str) -> float:
-    currency = STORES.get(store, {}).get("currency", "")
+    from store_credentials import get_all_stores
+
+    currency = get_all_stores().get(store, {}).get("currency", "")
     return CURRENCY_LINE_MAX.get(
         (currency, line),
         LINE_MAX_PRICE.get(line, 99_999_999),
@@ -979,7 +983,7 @@ async def collect_one_sqlite(db, store, queries):
         logger.warning("persistent failures — skipping %s (%d consecutive cycles failed)", store, consec)
         return 0
     queries = queries_for_store(store, queries)
-    line = STORES[store].get("line", "")
+    line = _store_line(store)
     collected = 0
     attempted = 0
     query_ok = 0
@@ -1089,13 +1093,15 @@ async def run_collection(stores, queries):
 
 def do_status():
     """Print collector status — works with both PG and SQLite via unified DB."""
+    from store_credentials import get_all_stores
+
     db = get_db()
     backend = "PostgreSQL" if USE_PG else "SQLite"
     total = db.execute("SELECT COUNT(*) c FROM price_snapshots").fetchone()["c"]
     stores = db.execute("SELECT COUNT(DISTINCT store) c FROM price_snapshots").fetchone()["c"]
     latest = db.execute("SELECT MAX(queried_at) m FROM price_snapshots").fetchone()["m"]
     runs = db.execute("SELECT COUNT(*) c FROM collector_runs").fetchone()["c"]
-    print(f"═══ Price Collector ({backend}) ═══\n  Prices: {total:,} | Stores: {stores}/{len(STORES)} | Latest: {latest or 'never'} | Runs: {runs}")
+    print(f"═══ Price Collector ({backend}) ═══\n  Prices: {total:,} | Stores: {stores}/{len(get_all_stores())} | Latest: {latest or 'never'} | Runs: {runs}")
     top = db.execute("SELECT store_name, COUNT(*) n FROM price_snapshots GROUP BY store_name ORDER BY n DESC LIMIT 5").fetchall()
     if top: print("  Top:"); [print(f"    {r['store_name'][:25]:<25} {r['n']:>6}") for r in top]
     db.close()

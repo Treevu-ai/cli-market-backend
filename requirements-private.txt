@@ -1,3 +1,3 @@
 # Private git deps — not scanned by GitHub Automatic Dependency Submission.
 # Requires GITHUB_TOKEN (Fly.io build) or local git credentials.
-cli-market-index[postgres] @ git+https://github.com/Treevu-ai/cli-market-index@d3ca12c0b35a8b119e3285ec61f2c3d4c2d52a62
+cli-market-index[postgres] @ git+https://github.com/Treevu-ai/cli-market-index@829b15a926a8a2022c38be1b271b662f81302551
