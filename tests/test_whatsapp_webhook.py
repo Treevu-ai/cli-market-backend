@@ -62,7 +62,7 @@ def test_disabled_without_twilio_credentials(isolated_db, monkeypatch):
     client = TestClient(app)
     r = client.post("/whatsapp/webhook", data={"From": "whatsapp:+51999999999", "Body": "hola"})
     assert r.status_code == 200
-    assert r.json()["status"] == "disabled"
+    assert r.headers["content-type"].startswith("application/xml")
 
 
 def test_accepts_real_twilio_signature_behind_a_proxy_reporting_http(whatsapp_client):
@@ -141,7 +141,7 @@ def test_allowed_numbers_gate_blocks_unlisted_sender(whatsapp_client):
 
     r = _post(client, params)
     assert r.status_code == 200
-    assert r.json()["status"] == "not_allowed"
+    assert r.headers["content-type"].startswith("application/xml")
     misc._send_whatsapp.assert_not_awaited()
 
 

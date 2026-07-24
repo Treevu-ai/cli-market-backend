@@ -16,7 +16,7 @@ import logging
 import os
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
 from market_core import COUNTRIES, FX_PEN_PER_UNIT, LINES, convert_currency, get_db
 from market_stats import MCP_TOOLS
@@ -284,6 +284,17 @@ async def telegram_webhook(request: Request):
     return {"status": "ok", "reply": reply[:100]}
 
 
+def _twiml_response(status: str) -> Response:
+    """Twilio's messaging webhook rejects any non-XML Content-Type on the
+    response (error 12300 "Invalid Content-Type"), even when the actual
+    reply is already delivered out-of-band via _send_whatsapp()'s REST API
+    call. An empty <Response/> tells Twilio "no auto-reply, I'm handling it
+    myself" without tripping that check. `status` is logged, not returned,
+    since Twilio itself never reads the body."""
+    logger.info("whatsapp webhook status=%s", status)
+    return Response(content="<Response></Response>", media_type="application/xml")
+
+
 @router.post("/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
     """Webhook registered in the Twilio WhatsApp sender config → receives inbound
@@ -291,10 +302,7 @@ async def whatsapp_webhook(request: Request):
     function's docstring) so the two channels never answer differently to the same
     command."""
     if not (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_WHATSAPP_NUMBER):
-        return {
-            "status": "disabled",
-            "hint": "Set TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_WHATSAPP_NUMBER env vars",
-        }
+        return _twiml_response("disabled")
     form = await request.form()
     params = dict(form)
 
@@ -306,12 +314,12 @@ async def whatsapp_webhook(request: Request):
     text = str(params.get("Body", "")).strip().lower()
     profile_name = str(params.get("ProfileName", ""))
     if not text or not from_number:
-        return {"status": "no_message"}
+        return _twiml_response("no_message")
 
     if WHATSAPP_ALLOWED_NUMBERS:
         bare_number = from_number.removeprefix("whatsapp:")
         if bare_number not in WHATSAPP_ALLOWED_NUMBERS and from_number not in WHATSAPP_ALLOWED_NUMBERS:
-            return {"status": "not_allowed"}
+            return _twiml_response("not_allowed")
 
     try:
         db = get_db()
@@ -329,4 +337,4 @@ async def whatsapp_webhook(request: Request):
 
     reply = _bot_command_reply(text, first_name=profile_name)
     await _send_whatsapp(from_number, reply)
-    return {"status": "ok", "reply": reply[:100]}
+    return _twiml_response("ok")
