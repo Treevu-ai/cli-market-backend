@@ -14,7 +14,7 @@ import os
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
-from market_core import COUNTRIES, FX_PEN_PER_UNIT, LINES, STORES, convert_currency, get_db
+from market_core import COUNTRIES, FX_PEN_PER_UNIT, LINES, convert_currency, get_db
 from market_stats import MCP_TOOLS
 from server_deps import get_db_dep, require_api_key
 
@@ -163,18 +163,23 @@ async def telegram_webhook(request: Request):
         except Exception:
             reply += "Error consultando."
     elif text.startswith("/status") or text == "status":
+        from store_credentials import get_all_stores
+
         reply = (
-            f"<b>CLI Market</b> — ONLINE\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-            f"\u2022 {len(STORES)} retailers en {len(LINES)} líneas\n"
-            f"\u2022 {len(COUNTRIES)} países\n"
-            f"\u2022 {MCP_TOOLS} MCP tools\n"
-            "\u2022 API: cli-market-api.fly.dev\n"
-            "\u2022 Pro: cli-market.dev/#pricing"
+            f"<b>CLI Market</b> — ONLINE\n━━━━━━━━━\n"
+            f"• {len(get_all_stores())} retailers en {len(LINES)} líneas\n"
+            f"• {len(COUNTRIES)} países\n"
+            f"• {MCP_TOOLS} MCP tools\n"
+            "• API: cli-market-api.fly.dev\n"
+            "• Pro: cli-market.dev/#pricing"
         )
     elif text.startswith("/coverage") or text in ("coverage", "cobertura"):
+        from store_credentials import get_all_stores
+
         reply = "<b>Cobertura por línea:</b>\n"
+        all_stores = get_all_stores()
         for lk in LINES:
-            c = sum(1 for v in STORES.values() if v["line"] == lk)
+            c = sum(1 for v in all_stores.values() if v.get("line") == lk)
             reply += f"{LINES[lk]['emoji']} {LINES[lk]['name']}: {c}\n"
         reply += "\n<b>Por pais:</b>\n"
         for _ck, cv in COUNTRIES.items():
