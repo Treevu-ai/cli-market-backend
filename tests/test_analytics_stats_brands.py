@@ -82,3 +82,37 @@ def test_unique_brands_on_shelf_counts_only_fresh_priced_snapshots(stats_client)
     body = r.json()
     assert body["unique_brands_on_shelf"] == 2
     assert body["brands_on_shelf_window_days"] == 30
+
+
+def test_unique_brands_on_shelf_collapses_case_variants(stats_client):
+    """Regression for the 2026-07-24 finding: "Gloria" vs "GLORIA" (same
+    brand, different retailer casing) must count once, not twice — this hit
+    ~43% of all branded snapshots in production (1,520 brand groups)."""
+    client, mc = stats_client
+    api_key = _setup_user(mc)
+
+    mc.save_price_snapshot(_product("p1", "Gloria"))
+    mc.save_price_snapshot(_product("p2", "GLORIA", store="metro"))
+    mc.save_price_snapshot(_product("p3", "gloria ", store="plazavea"))
+
+    r = client.get("/analytics/stats", headers={"Authorization": f"Bearer {api_key}"})
+    assert r.status_code == 200, r.text
+    assert r.json()["unique_brands_on_shelf"] == 1
+
+
+def test_analytics_brands_collapses_case_variants(stats_client):
+    """Regression for the same finding on GET /analytics/brands — must
+    report one consolidated count per brand, using the most common casing
+    as the display form, not one row per verbatim spelling."""
+    client, mc = stats_client
+    api_key = _setup_user(mc)
+
+    mc.save_price_snapshot(_product("p1", "Gloria"))
+    mc.save_price_snapshot(_product("p2", "GLORIA", store="metro"))
+    mc.save_price_snapshot(_product("p3", "Gloria", store="plazavea"))
+    mc.save_price_snapshot(_product("p4", "Laive", store="tottus"))
+
+    r = client.get("/analytics/brands", headers={"Authorization": f"Bearer {api_key}"})
+    assert r.status_code == 200, r.text
+    brands = {row["brand"]: row["count"] for row in r.json()["brands"]}
+    assert brands == {"Gloria": 3, "Laive": 1}

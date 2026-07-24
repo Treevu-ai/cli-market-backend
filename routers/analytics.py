@@ -84,8 +84,11 @@ def analytics_stats(authorization: str | None = Header(None), db = Depends(get_d
            FROM price_snapshots"""
     ).fetchone()
     total_queries = db.execute("SELECT COUNT(*) as n FROM search_queries").fetchone()["n"]
+    # LOWER(TRIM(...)) so "Gloria"/"GLORIA" (same brand, different retailer
+    # casing) count once, not twice — same fix as /analytics/brands, same
+    # root cause (confirmed live 2026-07-24, ~43% of branded snapshots).
     brands_on_shelf = db.execute(
-        """SELECT COUNT(DISTINCT brand) AS n
+        """SELECT COUNT(DISTINCT LOWER(TRIM(brand))) AS n
            FROM price_snapshots
            WHERE brand != '' AND price > 0 AND queried_at >= ?""",
         (_since_iso(STATS_BRAND_FRESHNESS_DAYS),),
@@ -136,19 +139,49 @@ def analytics_trending(country: str | None = None, line: str | None = None, limi
 @router.get("/analytics/brands")
 def analytics_brands(line: str | None = None, country: str | None = None, limit: int = 20, authorization: str | None = Header(None), db = Depends(get_db_dep)):
     require_api_key(authorization)
-    """Top brands in the data moat by snapshot count."""
-    q = "SELECT brand, COUNT(*) as count FROM price_snapshots WHERE brand != '' AND price > 0"
+    """Top brands in the data moat by snapshot count.
+
+    Groups case/whitespace variants of the same brand string together
+    (e.g. "Gloria" vs "GLORIA") instead of counting each verbatim spelling
+    as a distinct brand — confirmed live 2026-07-24: 1,520 brand groups
+    (~43% of all branded snapshots) were split this way, purely from
+    retailer connectors casing the same brand differently. This is a
+    display-layer fix only (raw `brand` strings on price_snapshots are
+    untouched); canonical_product_id / golden-record brand resolution in
+    cli-market-index is a separate, unrelated normalization path."""
+    filt = "WHERE brand != '' AND price > 0"
     params: list = []
     if line:
-        q += " AND line = ?"
+        filt += " AND line = ?"
         params.append(line)
     country_stores = _country_stores(country)
     if country and not country_stores:
         return {"brands": [], "total": 0}
     if country_stores:
-        q += f" AND store IN ({','.join('?' * len(country_stores))})"
+        filt += f" AND store IN ({','.join('?' * len(country_stores))})"
         params.extend(country_stores)
-    q += " GROUP BY brand ORDER BY count DESC LIMIT ?"
+    q = f"""
+        WITH per_form AS (
+            SELECT brand, COUNT(*) as form_count
+            FROM price_snapshots {filt}
+            GROUP BY brand
+        ),
+        ranked AS (
+            SELECT
+                brand,
+                SUM(form_count) OVER (PARTITION BY LOWER(TRIM(brand))) as total_count,
+                ROW_NUMBER() OVER (
+                    PARTITION BY LOWER(TRIM(brand))
+                    ORDER BY form_count DESC, brand ASC
+                ) as rn
+            FROM per_form
+        )
+        SELECT brand, total_count as count
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY total_count DESC
+        LIMIT ?
+    """
     params.append(limit)
     rows = db.execute(q, params).fetchall()
     return {"brands": [dict(r) for r in rows], "total": len(rows)}
