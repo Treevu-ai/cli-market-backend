@@ -8,7 +8,6 @@ import asyncio
 
 import pytest
 
-from market_core import market_action_links
 from routers import search as search_router
 
 
@@ -22,7 +21,7 @@ def pe_store(monkeypatch):
         },
     }
     monkeypatch.setattr(search_router, "STORES", stores)
-    monkeypatch.setattr(market_action_links, "STORES", stores)
+    monkeypatch.setattr("market_core.store_credentials.get_all_stores", lambda: stores)
     monkeypatch.setattr(search_router, "require_api_key", lambda *_a, **_k: "test-user")
     monkeypatch.setattr(search_router, "_record_tool_call", lambda *_a, **_k: None)
     monkeypatch.setattr(search_router, "enrich_list", lambda items, store_key="": items)
