@@ -136,6 +136,24 @@ def _html_to_whatsapp(text: str) -> str:
     return text.replace("<b>", "*").replace("</b>", "*")
 
 
+def _public_request_url(request: Request) -> str:
+    """Reconstruct the https:// URL Twilio actually called and signed.
+
+    This app runs behind Fly.io's proxy without uvicorn's --proxy-headers /
+    ProxyHeadersMiddleware, so request.url reports the internal http://
+    connection uvicorn sees, not the public https:// URL the client (Twilio)
+    used. Twilio computes its signature over that public URL, so validating
+    against str(request.url) verbatim made every real delivery fail with 403
+    even after the endpoint path itself was fixed (confirmed live
+    2026-07-24 — Twilio's error logs showed "Forbidden" on every attempt)."""
+    proto = request.headers.get("x-forwarded-proto", "https")
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    url = f"{proto}://{host}{request.url.path}"
+    if request.url.query:
+        url += f"?{request.url.query}"
+    return url
+
+
 def _validate_twilio_signature(url: str, params: dict, signature: str) -> bool:
     """https://www.twilio.com/docs/usage/webhooks/webhooks-security — HMAC-SHA1 over
     the request URL followed by each POST param (sorted by key), keyed by the auth token."""
@@ -281,7 +299,7 @@ async def whatsapp_webhook(request: Request):
     params = dict(form)
 
     signature = request.headers.get("X-Twilio-Signature", "")
-    if not _validate_twilio_signature(str(request.url), params, signature):
+    if not _validate_twilio_signature(_public_request_url(request), params, signature):
         raise HTTPException(status_code=403, detail="invalid_signature")
 
     from_number = str(params.get("From", ""))  # "whatsapp:+51987654321"

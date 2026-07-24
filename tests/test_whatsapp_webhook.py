@@ -17,7 +17,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 AUTH_TOKEN = "test-twilio-auth-token"
-WEBHOOK_URL = "http://testserver/whatsapp/webhook"
+# https, not http: _public_request_url() defaults to "https" when
+# X-Forwarded-Proto is absent (as it is for TestClient requests) — matching
+# Fly.io's real proxy, which always sets it. See _public_request_url's
+# docstring for why the scheme matters here.
+WEBHOOK_URL = "https://testserver/whatsapp/webhook"
 
 
 def _twilio_signature(url: str, params: dict, auth_token: str = AUTH_TOKEN) -> str:
@@ -59,6 +63,33 @@ def test_disabled_without_twilio_credentials(isolated_db, monkeypatch):
     r = client.post("/whatsapp/webhook", data={"From": "whatsapp:+51999999999", "Body": "hola"})
     assert r.status_code == 200
     assert r.json()["status"] == "disabled"
+
+
+def test_accepts_real_twilio_signature_behind_a_proxy_reporting_http(whatsapp_client):
+    """Regression for the 2026-07-24 incident: Fly.io terminates TLS and
+    forwards plain HTTP internally (no --proxy-headers configured on
+    uvicorn), so request.url.scheme is "http" even though Twilio always
+    calls the public https:// URL and signs against that. Every real
+    delivery got rejected with 403 until _public_request_url() started
+    trusting X-Forwarded-Proto/Host instead of request.url verbatim. This
+    test asserts the fixed behavior directly against a signature computed
+    the way Twilio actually computes it (over the https:// URL)."""
+    client, misc = whatsapp_client
+    params = {"From": "whatsapp:+51902126765", "Body": "hola", "ProfileName": "Ricardo"}
+    signature = _twilio_signature("https://cli-market-api.fly.dev/whatsapp/webhook", params)
+
+    r = client.post(
+        "/whatsapp/webhook",
+        data=params,
+        headers={
+            "X-Twilio-Signature": signature,
+            "X-Forwarded-Proto": "https",
+            "X-Forwarded-Host": "cli-market-api.fly.dev",
+            "Host": "cli-market-api.internal:8080",
+        },
+    )
+    assert r.status_code == 200, r.text
+    misc._send_whatsapp.assert_awaited_once()
 
 
 def test_rejects_invalid_signature(whatsapp_client):
