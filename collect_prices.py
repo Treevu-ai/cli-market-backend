@@ -706,15 +706,6 @@ def parse_price(p):
     try: return float(p or 0)
     except: return 0.0
 
-def _old_product_from_json(p, store):
-    items = p.get("items",[]); item = items[0] if items else {}
-    sellers = item.get("sellers",[]); seller = sellers[0] if sellers else {}
-    offer = seller.get("commertialOffer",{})
-    price = parse_price(offer.get("Price")); list_price = parse_price(offer.get("ListPrice"))
-    discount = round((1-price/list_price)*100) if list_price>price>0 else None
-    sid = p.get("productReference") or p.get("productId","")
-    return {"product_id":sid,"name":p.get("productName","").replace("-"," "),"brand":p.get("brand") or "","category":p.get("categoryId",""),"price":price,"list_price":list_price,"discount":discount,"stock":offer.get("AvailableQuantity",0),"store":store,"store_name":STORES.get(store,{}).get("name",store),"currency":STORES.get(store,{}).get("currency",""),"line":STORES.get(store,{}).get("line",""),"line_name":LINES.get(STORES.get(store,{}).get("line",""),{}).get("name",""),"url":f"{STORES.get(store,{}).get('base','')}/{p.get('linkText','')}/p"}
-
 # ── Circuit breaker ─────────────────────────────────────────────────────────
 
 class CB:
