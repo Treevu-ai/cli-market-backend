@@ -316,6 +316,99 @@ SEED_QUERIES = [
     ("diagnostico","automotriz"),("remap","automotriz"),("stage","automotriz"),
     ("performance","automotriz"),("tuning","automotriz"),("obd","automotriz"),
     ("centralita","automotriz"),("mapa","automotriz"),("potencia","automotriz"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 💊 Suplementos (10 tiendas: NutriPoint, MarketFit, Lab Nutrition, Smart
+    # Nutrition, Ecotienda, La Purita, Vitacost, Reformhaus, Herbolario Navarro,
+    # Zona Fit) — 2026-07-24: this line had zero SEED_QUERIES entries and no
+    # STORE_QUERY_OVERRIDES, so the daemon skipped every one of these stores
+    # every cycle (queries_for_line == 0 -> collect_one_pg returns 0 before
+    # ever writing store_health). Found via the coverage audit that classified
+    # 9 of these 10 as never_wired/stale_large_catalog/thin.
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("proteina","suplementos"),("creatina","suplementos"),("multivitaminico","suplementos"),
+    ("omega 3","suplementos"),("colageno","suplementos"),("magnesio","suplementos"),
+    ("vitamina d","suplementos"),("batido proteico","suplementos"),
+    ("protein powder","suplementos"),("vitamins","suplementos"),
+    ("supplements","suplementos"),("whey protein","suplementos"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 💐 Flores y regalos (5 tiendas: Rosatel, Magia, L'amour, Lima Floral Co, Alore)
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("rosas","flores_regalos"),("ramo de flores","flores_regalos"),
+    ("arreglo floral","flores_regalos"),("flores","flores_regalos"),
+    ("peluche","flores_regalos"),("chocolates","flores_regalos"),
+    ("regalo cumpleaños","flores_regalos"),("orquideas","flores_regalos"),
+    ("girasoles","flores_regalos"),("canasta de regalo","flores_regalos"),
+    ("bouquet","flores_regalos"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🏭 Industrial (5 tiendas: Igardi, SSA Perú, Ferrincorp, MKE Industria, Edipesa)
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("guantes de seguridad","industrial"),("casco de seguridad","industrial"),
+    ("epp","industrial"),("tornillos","industrial"),("valvula","industrial"),
+    ("manguera industrial","industrial"),("cinta aislante","industrial"),
+    ("candado","industrial"),("extintor","industrial"),
+    ("herramientas","industrial"),("equipo de proteccion","industrial"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 💄 Belleza (4 tiendas: Flora & Fauna, Ésika, Vegan Essentials, Sentua)
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("labial","belleza"),("base de maquillaje","belleza"),
+    ("mascara de pestañas","belleza"),("delineador","belleza"),
+    ("protector solar","belleza"),("crema facial","belleza"),
+    ("perfume","belleza"),("sombras","belleza"),("rubor","belleza"),
+    ("makeup","belleza"),("skincare","belleza"),("lipstick","belleza"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 📚 Papelería (3 tiendas: Tai Loy, Crisol, SBS Librería)
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("cuaderno","papeleria"),("lapiceros","papeleria"),
+    ("mochila escolar","papeleria"),("utiles escolares","papeleria"),
+    ("libros","papeleria"),("resaltador","papeleria"),
+    ("papel bond","papeleria"),("carpeta","papeleria"),
+    ("lapices de colores","papeleria"),("calculadora","papeleria"),("agenda","papeleria"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🍳 Equipos de cocina (2 tiendas: Ilumiperu, Grupo Nova)
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("horno industrial","equipos_cocina"),("cocina industrial","equipos_cocina"),
+    ("campana extractora","equipos_cocina"),("refrigerador comercial","equipos_cocina"),
+    ("batidora industrial","equipos_cocina"),("utensilios de cocina","equipos_cocina"),
+    ("vitrina exhibidora","equipos_cocina"),("freidora","equipos_cocina"),
+    ("licuadora industrial","equipos_cocina"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🎸 Instrumentos musicales (2 tiendas: AudioMúsica PE, AudioMúsica CL)
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("guitarra","musical_instruments"),("teclado musical","musical_instruments"),
+    ("bateria musical","musical_instruments"),("microfono","musical_instruments"),
+    ("amplificador","musical_instruments"),("bajo electrico","musical_instruments"),
+    ("pedal de guitarra","musical_instruments"),("parlante","musical_instruments"),
+    ("cuerdas de guitarra","musical_instruments"),("audifonos estudio","musical_instruments"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🍔 Restaurantes (1 tienda: Bembos)
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("hamburguesa","restaurantes"),("combo","restaurantes"),
+    ("papas fritas","restaurantes"),("pollo broaster","restaurantes"),
+    ("menu","restaurantes"),("gaseosa","restaurantes"),
+    ("sandwich","restaurantes"),("postre","restaurantes"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🐾 Mascotas (1 tienda: SuperPet)
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("alimento para perro","pet"),("alimento para gato","pet"),
+    ("arena para gato","pet"),("correa","pet"),
+    ("juguete para mascota","pet"),("shampoo para perro","pet"),
+    ("collar","pet"),("comedero","pet"),
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🍷 Licores (1 tienda: Almendariz)
+    # ═══════════════════════════════════════════════════════════════════════════
+    ("whisky","licores"),("vino tinto","licores"),("ron","licores"),
+    ("vodka","licores"),("cerveza artesanal","licores"),
+    ("pisco","licores"),("champagne","licores"),("licor","licores"),
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
