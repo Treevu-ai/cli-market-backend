@@ -79,12 +79,19 @@ _PRO_TOOLS = frozenset({
     "market_ticket",
 })
 
-_UPGRADE_MSG = (
-    "This tool requires CLI Market Pro ($49/mo). "
-    "Start with Starter ($9/mo) for search and compare, or upgrade to Pro "
-    "to unlock basket, cart, checkout, orders, alerts, export, and AI ask. "
-    "Plans at https://cli-market.dev."
-)
+def _upgrade_msg() -> str:
+    # Built from market_billing's live price constants instead of a hardcoded
+    # string -- this exact hardcoding pattern already caused a real incident
+    # (cli-market-backend, 2026-07-08: Slack alerts showed a stale price for
+    # months after the real Pro/Starter price changed). Don't repeat it here.
+    from market_billing import PUBLIC_PRO_PRICE_USD, PUBLIC_STARTER_PRICE_USD
+
+    return (
+        f"This tool requires CLI Market Pro (${PUBLIC_PRO_PRICE_USD:.0f}/mo). "
+        f"Start with Starter (${PUBLIC_STARTER_PRICE_USD:.0f}/mo) for search and compare, or upgrade to Pro "
+        "to unlock basket, cart, checkout, orders, alerts, export, and AI ask. "
+        "Plans at https://cli-market.dev."
+    )
 
 # Canonical client slugs — order matters (first match wins).
 _CLIENT_MAP: list[tuple[str, list[str]]] = [
@@ -427,7 +434,7 @@ async def _call_tool(name: str, args: dict, token: str) -> dict:
             return {"error": f"Unknown tool: {name}"}
 
         if r.status_code in (402, 403) and name in _PRO_TOOLS:
-            return {"error": "pro_required", "message": _UPGRADE_MSG}
+            return {"error": "pro_required", "message": _upgrade_msg()}
         if r.status_code == 429:
             retry_after = r.headers.get("retry-after", "60")
             try:
