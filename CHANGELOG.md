@@ -8,6 +8,17 @@ for the full ecosystem picture. This file only tracks changes that
 actually landed here (mostly dependency-pin bumps kept in sync for
 correctness/dependency-graph reasons).
 
+## [2026-07-27] — cli-market-core pin bumped 1.11.85 → 1.11.86 (5 new quality/receipts MCP tools)
+
+- Kept in sync with `cli-market-core` 1.11.86 (`market_receipts`,
+  `market_quality_scores`, `market_quality_flagged`, `market_dispersion`,
+  `market_coverage_matrix` added to the MCP registry). This repo is
+  frozen — the pin bump is for dependency-graph/history correctness
+  only; the tools don't actually deploy from here (see fly.toml's
+  DO-NOT-DEPLOY note). Production deploy + the equivalent hand-written
+  HTTP MCP tool additions happened in
+  [cli-market-world/CHANGELOG.md 2026-07-27](https://github.com/Treevu-ai/cli-market-world/blob/main/CHANGELOG.md).
+
 ## [2026-07-26] — cli-market-core pin bumped 1.11.76 → 1.11.85, unblocking a broken test collection
 
 **`cli-market-core` re-pinned across three bumps (c50aafc, 72c7fe1, 37c04b9)**
