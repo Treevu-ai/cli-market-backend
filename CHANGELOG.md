@@ -8,6 +8,14 @@ for the full ecosystem picture. This file only tracks changes that
 actually landed here (mostly dependency-pin bumps kept in sync for
 correctness/dependency-graph reasons).
 
+## [2026-07-27] — cli-market-core pin bumped 1.11.86 → 1.11.87 (market_prices, market_basket_snapshot)
+
+- Kept in sync with `cli-market-core` 1.11.87. Same caveat as the entry
+  below — this repo is frozen, pin bump is for dependency-graph/history
+  correctness only. Production changes (this pin + 6 more world-only
+  MCP tools + 3 tier-gating bug fixes) landed in
+  [cli-market-world/CHANGELOG.md 2026-07-27](https://github.com/Treevu-ai/cli-market-world/blob/main/CHANGELOG.md).
+
 ## [2026-07-27] — cli-market-core pin bumped 1.11.85 → 1.11.86 (5 new quality/receipts MCP tools)
 
 - Kept in sync with `cli-market-core` 1.11.86 (`market_receipts`,
