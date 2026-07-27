@@ -8,6 +8,18 @@ for the full ecosystem picture. This file only tracks changes that
 actually landed here (mostly dependency-pin bumps kept in sync for
 correctness/dependency-graph reasons).
 
+## [2026-07-27] — cli-market-core pin bumped 1.11.86 → 1.11.88 (market_prices/basket_snapshot + GOLDEN_RECORDS_COUNT)
+
+- Corrects a gap: the entry below documented the 1.11.87 pin bump but
+  the `requirements.txt` commit for it was accidentally never made —
+  caught while doing an end-of-session sweep. This commit jumps
+  straight to 1.11.88, which also includes `GOLDEN_RECORDS_COUNT` /
+  `GOLDEN_RECORDS_LABEL` (see cli-market-core's own CHANGELOG for
+  detail — resolves a stale "97k+" placeholder in the intel-latam
+  landing page with the real live count, 28,842).
+- Same caveat as always: this repo is frozen, pin bump is for
+  dependency-graph/history correctness only.
+
 ## [2026-07-27] — cli-market-core pin bumped 1.11.86 → 1.11.87 (market_prices, market_basket_snapshot)
 
 - Kept in sync with `cli-market-core` 1.11.87. Same caveat as the entry
