@@ -8,6 +8,14 @@ for the full ecosystem picture. This file only tracks changes that
 actually landed here (mostly dependency-pin bumps kept in sync for
 correctness/dependency-graph reasons).
 
+## [2026-07-30] — bump cli-market-core pin to 1.11.95 (register deltron_pe, disabled)
+
+`requirements.txt` pin bumped to `cli-market-core==1.11.95` for
+dependency-graph correctness. This repo is frozen and not deployed; the
+release itself (`deltron_pe` added to `STORES`, disabled — B2B wholesale
+login-gated prices, custom PHP storefront, no JSON API) shipped through
+`cli-market-world`. See that repo's changelog for details.
+
 ## [2026-07-27] — cli-market-core pin bumped 1.11.86 → 1.11.88 (market_prices/basket_snapshot + GOLDEN_RECORDS_COUNT)
 
 - Corrects a gap: the entry below documented the 1.11.87 pin bump but
