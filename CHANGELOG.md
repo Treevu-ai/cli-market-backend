@@ -8,6 +8,14 @@ for the full ecosystem picture. This file only tracks changes that
 actually landed here (mostly dependency-pin bumps kept in sync for
 correctness/dependency-graph reasons).
 
+## [2026-07-30] — bump cli-market-core pin to 1.11.96 (fix market_optimize_purchase wrong-category matches)
+
+`requirements.txt` pin bumped to `cli-market-core==1.11.96` for
+dependency-graph correctness. This repo is frozen and not deployed; the
+release itself (fixes "queso"→"Tequeños de Queso" and "mantequilla"→
+"Mantequilla de Maní" false-positive matches in basket optimize) shipped
+through `cli-market-world`. See that repo's changelog for details.
+
 ## [2026-07-30] — bump cli-market-core pin to 1.11.95 (register deltron_pe, disabled)
 
 `requirements.txt` pin bumped to `cli-market-core==1.11.95` for
