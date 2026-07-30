@@ -8,6 +8,14 @@ for the full ecosystem picture. This file only tracks changes that
 actually landed here (mostly dependency-pin bumps kept in sync for
 correctness/dependency-graph reasons).
 
+## [2026-07-30] — bump cli-market-core pin to 1.11.98 (fix 3/5 dead-store collector failures)
+
+`requirements.txt` pin bumped to `cli-market-core==1.11.98` for
+dependency-graph correctness. This repo is frozen and not deployed; the
+release itself (Shopify/WooCommerce connectors now handle HTTP 200 +
+non-JSON WAF block pages) shipped through `cli-market-world`. See that
+repo's changelog for details.
+
 ## [2026-07-30] — bump cli-market-core pin to 1.11.97 (fix items_resolved/breakdown SKU mismatch)
 
 `requirements.txt` pin bumped to `cli-market-core==1.11.97` for
