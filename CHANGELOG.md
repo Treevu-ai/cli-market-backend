@@ -8,6 +8,15 @@ for the full ecosystem picture. This file only tracks changes that
 actually landed here (mostly dependency-pin bumps kept in sync for
 correctness/dependency-graph reasons).
 
+## [2026-07-30] — bump cli-market-core pin to 1.12.0 (also disable igardi_pe)
+
+`requirements.txt` pin bumped to `cli-market-core==1.12.0` — required
+immediately, not just for graph correctness: `cli-market-world`'s
+`ops/contract_parity.py` CI check enforces matching `major.minor`
+between the two repos' pins, and failed CI on the 1.11.99→1.12.0 gap
+between this bump and that one. This repo is still frozen and not
+deployed.
+
 ## [2026-07-30] — bump cli-market-core pin to 1.11.99 (disable wisqaperu_pe, confirmed Cloudflare Turnstile)
 
 `requirements.txt` pin bumped to `cli-market-core==1.11.99` for
