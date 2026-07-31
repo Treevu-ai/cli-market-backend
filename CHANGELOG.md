@@ -8,6 +8,13 @@ for the full ecosystem picture. This file only tracks changes that
 actually landed here (mostly dependency-pin bumps kept in sync for
 correctness/dependency-graph reasons).
 
+## [2026-07-30] — bump cli-market-core pin to 1.11.99 (disable wisqaperu_pe, confirmed Cloudflare Turnstile)
+
+`requirements.txt` pin bumped to `cli-market-core==1.11.99` for
+dependency-graph correctness. This repo is frozen and not deployed; the
+release itself (disable wisqaperu_pe) shipped through `cli-market-world`.
+See that repo's changelog for details.
+
 ## [2026-07-30] — bump cli-market-core pin to 1.11.98 (fix 3/5 dead-store collector failures)
 
 `requirements.txt` pin bumped to `cli-market-core==1.11.98` for
