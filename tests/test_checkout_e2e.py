@@ -180,6 +180,19 @@ class TestYapeHappyPath:
         r = client.post("/checkout/webhook?order_id=ORD-FFFFFFFF&status=paid")
         assert r.status_code == 404
 
+    def test_checkout_webhook_secret_is_header_only(self, checkout_client, monkeypatch):
+        client, _mc = checkout_client
+        monkeypatch.setenv("CHECKOUT_WEBHOOK_SECRET", "correct-secret")
+
+        leaked = client.post("/checkout/webhook?order_id=ORD-FFFFFFFF&secret=correct-secret")
+        assert leaked.status_code == 401
+
+        authenticated = client.post(
+            "/checkout/webhook?order_id=ORD-FFFFFFFF",
+            headers={"X-Checkout-Webhook-Secret": "correct-secret"},
+        )
+        assert authenticated.status_code == 404
+
 
 # ─── 2. Yape failure gates ───────────────────────────────────────────────────
 
