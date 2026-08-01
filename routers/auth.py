@@ -23,7 +23,7 @@ import secrets
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 import market_core
@@ -57,6 +57,12 @@ logger = logging.getLogger("market.server").getChild("auth")
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+def _login_attempt_key(request: Request, username: str) -> str:
+    """Scope brute-force state to the target account and direct peer IP."""
+    client_host = (request.client.host if request.client else "unknown").strip()
+    return f"{username.strip().lower()}:{client_host[:128]}"
 
 
 class CreateApiKeyRequest(BaseModel):
@@ -340,19 +346,25 @@ def verify_email(body: VerifyEmailRequest):
 
 
 @router.post("/auth/login")
-def login(body: LoginRequest):
-    check_rate_limit("auth")
-    check_auth_brute_force(body.username)
+def login(body: LoginRequest, request: Request):
+    client_host = (request.client.host if request.client else "unknown").strip()[:128]
+    attempt_key = _login_attempt_key(request, body.username)
+    check_rate_limit(f"auth:{client_host}")
+    check_auth_brute_force(attempt_key)
     users = db_get_users()
     if not users:
-        admin_pass = os.getenv("MARKET_ADMIN_PASSWORD")
+        admin_pass = os.getenv("MARKET_ADMIN_PASSWORD", "").strip()
         if not admin_pass:
-            raise HTTPException(status_code=500, detail="MARKET_ADMIN_PASSWORD not set")
+            logger.critical("Refusing implicit admin bootstrap without MARKET_ADMIN_PASSWORD")
+            raise HTTPException(
+                status_code=503,
+                detail="Authentication is not initialized. Configure MARKET_ADMIN_PASSWORD.",
+            )
         db_save_user("admin", hash_password(admin_pass), str(uuid.uuid4()))
         users = db_get_users()
     user = users.get(body.username)
     if not user or not verify_password(body.password, user["password"]):
-        record_auth_failure(body.username)
+        record_auth_failure(attempt_key)
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     from market_core.auth_tokens import issue_session_tokens
 

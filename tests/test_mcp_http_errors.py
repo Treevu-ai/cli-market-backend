@@ -16,7 +16,8 @@ def _call_tool(monkeypatch, exc: Exception):
 
     monkeypatch.setattr("routers.mcp_http.require_api_key", _boom)
     return client.post(
-        "/mcp?token=sk-whatever",
+        "/mcp",
+        headers={"Authorization": "Bearer sk-whatever"},
         json={
             "jsonrpc": "2.0",
             "id": 1,
@@ -48,3 +49,13 @@ def test_bad_token_still_reports_401(monkeypatch):
     body = resp.json()
     assert body["error"]["code"] == -32001
     assert body["error"]["message"] == "Token inválido"
+
+
+def test_query_token_is_rejected_by_default():
+    resp = client.post(
+        "/mcp?token=sk-should-not-be-in-a-url",
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    )
+
+    assert resp.status_code == 400
+    assert "URL" in resp.json()["error"]["message"]

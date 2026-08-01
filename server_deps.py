@@ -13,6 +13,7 @@ Contents:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import os
 from typing import Annotated, Generator
@@ -91,22 +92,43 @@ def auth_user(token: str) -> str:
 
 # ── Password hashing ──────────────────────────────────────────────────────────
 
+PASSWORD_SCHEME = "pbkdf2_sha256"
+_LEGACY_PASSWORD_ITERATIONS = 100_000
+
+
+def _password_iterations() -> int:
+    """Return a safe, configurable PBKDF2 cost for new password hashes."""
+    try:
+        return max(_LEGACY_PASSWORD_ITERATIONS, int(os.getenv("MARKET_PASSWORD_HASH_ITERATIONS", "600000")))
+    except ValueError:
+        return 600_000
+
+
 def hash_password(password: str) -> str:
+    iterations = _password_iterations()
     salt = os.urandom(16).hex()
-    h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
-    return f"{salt}:{h.hex()}"
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), iterations).hex()
+    return f"{PASSWORD_SCHEME}${iterations}${salt}${digest}"
 
 
 def verify_password(password: str, stored: str) -> bool:
-    if ":" not in stored:
-        raise HTTPException(
-            status_code=500,
-            detail="Legacy plaintext password detected. Contact admin.",
-        )
-    salt, h = stored.split(":", 1)
-    return h == hashlib.pbkdf2_hmac(
-        "sha256", password.encode(), salt.encode(), 100_000
-    ).hex()
+    """Verify versioned hashes while retaining the prior format for existing users."""
+    if stored.startswith(f"{PASSWORD_SCHEME}$"):
+        try:
+            _scheme, iterations_raw, salt, expected = stored.split("$", 3)
+            iterations = int(iterations_raw)
+        except ValueError:
+            return False
+        if iterations < _LEGACY_PASSWORD_ITERATIONS or not salt or not expected:
+            return False
+    elif ":" in stored:
+        salt, expected = stored.split(":", 1)
+        iterations = _LEGACY_PASSWORD_ITERATIONS
+    else:
+        raise HTTPException(status_code=500, detail="Legacy plaintext password detected. Contact admin.")
+
+    actual = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), iterations).hex()
+    return hmac.compare_digest(actual, expected)
 
 
 # ── Brute-force protection ────────────────────────────────────────────────────
