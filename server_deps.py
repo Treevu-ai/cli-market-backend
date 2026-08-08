@@ -87,6 +87,11 @@ def auth_user(token: str) -> str:
     for username, data in users.items():
         if data.get("token") == token:
             return username
+    if token.startswith("sk-"):
+        raise HTTPException(
+            status_code=401,
+            detail="API key inválida o revocada. Generá una nueva con 'market register' o revisá tu dashboard.",
+        )
     raise HTTPException(status_code=401, detail="Token inválido. Usá 'market login'.")
 
 
