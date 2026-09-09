@@ -136,13 +136,19 @@ def _log_mcp_event(event: str, username: str | None, meta: dict) -> None:
 # ── Tool definitions (sourced from market_core registry) ──────────────────────
 
 # list_tools() returns [{name, description, inputSchema}, ...] for the profile.
-# Using the registry as single source of truth avoids drift when new tools are
-# published to cli-market-core without a matching mcp_http update.
-# Default-profile tools (44), used as the fallback for unauthenticated/free/
+# Using the registry as single source of truth avoids drift in the *contents*
+# of each profile when new tools are published to cli-market-core -- but the
+# *count* still needs to be kept in sync by hand wherever it's hardcoded (see
+# tests/test_mcp_tools_profile.py), since neither profile size is fixed: it
+# grows whenever cli-market-core adds a tool that isn't in _ADVANCED_NAMES/
+# _ADMIN_NAMES/_DEFAULT_HIDDEN. Confirmed drift 2026-09-09: default went
+# 44 -> 45 (market_gondola_advise) and full went 66 -> 74 over ~1 month of
+# cli-market-core releases the pin hadn't picked up yet.
+# Default-profile tools, used as the fallback for unauthenticated/free/
 # pro/starter callers, the server card, and initialize's advertised count.
 _TOOLS: list[dict] = _registry_list_tools("default")
 
-# "full" profile (66) — every customer-facing tool, excluding the operator-only
+# "full" profile — every customer-facing tool, excluding the operator-only
 # admin tools (_ADMIN_NAMES, e.g. cron/scan-stores triggers) that "admin"
 # profile alone exposes. Precomputed once like _TOOLS above.
 _FULL_TOOLS: list[dict] = _registry_list_tools("full")
@@ -156,7 +162,7 @@ _PROFILE_CACHE_TTL = 300.0  # seconds
 
 def _tools_for_token(raw_token: str | None) -> list[dict]:
     """Enterprise subscribers (and the platform admin) see every customer-
-    facing tool by default instead of the 44-tool curated default profile —
+    facing tool by default instead of the curated default profile (_TOOLS) —
     requested explicitly (2026-07-23): "necesito que mi perfil enterprise
     exponga todas las tools por defecto". Never raises — an invalid/missing
     token just falls back to the default profile, same as before this

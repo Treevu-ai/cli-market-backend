@@ -1,12 +1,18 @@
 """Enterprise-tier subscribers (and the platform admin) see every
-customer-facing MCP tool (the "full" profile, 66 tools) via tools/list
-instead of the 44-tool curated default profile — requested explicitly
-2026-07-23: "necesito que mi perfil enterprise exponga todas las tools
-por defecto".
+customer-facing MCP tool (the "full" profile) via tools/list instead of
+the curated default profile — requested explicitly 2026-07-23: "necesito
+que mi perfil enterprise exponga todas las tools por defecto".
 
 Before this, tools/list served a single module-level constant computed
 once at import time for the "default" profile only — every caller saw
-the same 44 tools regardless of subscription tier.
+the same tools regardless of subscription tier.
+
+Both profiles' sizes are sourced live from cli-market-core's registry
+(routers/mcp_http.py's _TOOLS/_FULL_TOOLS) and grow whenever a release
+there adds a tool outside _ADVANCED_NAMES/_ADMIN_NAMES/_DEFAULT_HIDDEN —
+the exact counts asserted below (44 -> 45 default; 66 -> 74 full, not
+directly asserted here) are a snapshot as of the cli-market-core pin in
+requirements.txt, not a fixed contract. Expect to bump them again.
 """
 
 from __future__ import annotations
@@ -49,7 +55,13 @@ def test_free_tier_still_gets_default_profile():
         tools = _tools_for_token("sk-free-token")
 
     assert tools == _TOOLS
-    assert len(tools) == 44
+    # 45, not 44 (bumped 2026-09-09 when cli-market-core's floor moved to
+    # 1.12.72): market_gondola_advise joined the default tools/list profile
+    # in cli-market-core c6d629b -- it's not in _ADVANCED_NAMES/_ADMIN_NAMES/
+    # _DEFAULT_HIDDEN, so tool_in_profile() lists it for everyone even though
+    # invoking it still requires a pro subscription (listing vs. call-time
+    # tier gating are separate checks).
+    assert len(tools) == 45
 
 
 def test_pro_tier_still_gets_default_profile():
